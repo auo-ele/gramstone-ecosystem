@@ -5,14 +5,15 @@
   BOT AUTO PLAY 24/7 SIÊU CẤP - MOONPOOL 3D AQUARIUM (@MoonpoolGameBot)
   Platform: Moonpool 3D Aquarium (https://moonpool.64-226-82-60.sslip.io/)
   Bot     : @MoonpoolGameBot (Telegram WebApp App: 'play')
-  Target  : CHUYÊN CÀY CÁ KHỦNG CẤP 3 (+12⚡ POWER) NON-STOP 24/7
-  Account : hungzai22 (ID: 7744031191) - Acc 1 (Repo: nthanhhung0122-max/m-n)
-
-  CẬP NHẬT MỚI NHẤT TỪ GAME (2/11/2026):
-    1. BỎ GIỚI HẠN 40 CÁ/NGÀY: Nâng hạn mức lên 1.000 cá/ngày (cày không giới hạn).
-    2. COOLDOWN RÚT GỌN TỪ 5 PHÚT -> 1 PHÚT (60s): Cứ 60s nhận 1 cá khủng +12⚡.
-    3. ADSGRAM BLOCK ID MỚI: 56919 (Tự động lấy động theo cấu hình server).
-    4. 24/7 AUTO HANDOVER: Tự động dispatch phiên mới sau 4.8h chạy xuyên suốt.
+  Target  : CÀY CÁ KHỦNG CẤP 3 (+12⚡ POWER) & QUÉT NHIỆM VỤ 1 LẦN NON-STOP 24/7
+  
+  TÍNH NĂNG TỰ ĐỘNG HÓA TOÀN DIỆN 100%:
+    1. Quét và hoàn thành tất cả nhiệm vụ 1 lần (Channel, Group, Invite, Daily Streak).
+    2. Kênh/nhóm Telegram được join qua Telethon, lập tức đưa vào Lưu trữ (Archive folder_id: 1)
+       và TUYỆT ĐỐI GIỮ VĨNH VIỄN, KHÔNG BAO GIỜ OUT.
+    3. CÀY CÁ KHỦNG TIER 3 (+12⚡) liên tục không dừng qua chuỗi QC Moonpool.
+    4. Tự động thu hoạch vỏ Hàu TON liên tục mỗi khi có tiền.
+    5. Tự động chuyển giao ca sau 4.8 giờ để cày thông suốt 24/7 không gián đoạn.
 =============================================================================
 """
 
@@ -35,25 +36,29 @@ from colorama import Fore, Style, init
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.crypto import AuthKey
-from telethon.tl.functions.messages import RequestAppWebViewRequest
-from telethon.tl.types import InputBotAppShortName
+from telethon.tl.functions.messages import RequestAppWebViewRequest, ImportChatInviteRequest
+from telethon.tl.functions.channels import JoinChannelRequest
+from telethon.tl.functions.folders import EditPeerFoldersRequest
+from telethon.tl.types import InputBotAppShortName, InputFolderPeer
+from telethon.errors import UserAlreadyParticipantError, FloodWaitError, InviteHashExpiredError
 
 urllib3.disable_warnings()
 init(autoreset=True)
 
 # ---------------------------------------------------------------------------
-#  CẤU HÌNH HỆ THỐNG - ACC 1
+#  CẤU HÌNH HỆ THỐNG
 # ---------------------------------------------------------------------------
-API_ID = 39182276
-API_HASH = "f02b155d895a3a3fbf8a1cbe810b5338"
+_raw_id = os.getenv("TELEGRAM_API_ID", "").strip()
+API_ID = int(_raw_id) if _raw_id.isdigit() else 34333329
+API_HASH = os.getenv("TELEGRAM_API_HASH", "").strip() or "4f9371f95000578c84dbc670aaf1f819"
 
 KNOWN_GOOD_STRING_SESSION = (
     os.getenv("TELEGRAM_STRING_SESSION") or
     "1BVtsOMMBu4twagryqQ2jg8Lq0r5ht_iJ-LHnM5qYYrNYGz6aTkbk6gA42gQZ9ZJs80wXSEzppw8z6RK4eKpp6qtGAegFWNsoEbJpCmmd47phuoQ3YN1DPsxsX2uoWJQ60B18gArjt603YezUARHPh7opveQtVwZR9N9M8O4eSFDDQmFHeglnaqniplilMXYSF1Jr7e9E2XevLm2MkYUv4roxlragUkxtKPlSoLOd0V2JMIKN9A4yOzsRHcdI4H33W1XwP1J9UiQrb52gGxsf3i73f_NzbByCFlZPHh04aTRUhNtLBETfLb5XHLtwoxg5SOt24eSkBDRJOtaPCik32hnP3fQjTrQ="
 )
 
-REPO_NAME = "m-n"
-WORKFLOW_NAME = "moonpool.yml"
+REPO_NAME = (os.getenv("GITHUB_REPOSITORY") or "auo-ele/gramstone-ecosystem").strip()
+WORKFLOW_NAME = (os.getenv("WORKFLOW_FILE") or "moonpool_acc4.yml").strip()
 
 API_BASE = "https://moonpool.64-226-82-60.sslip.io"
 BOT_USERNAME = "MoonpoolGameBot"
@@ -98,30 +103,104 @@ def get_clean_string_session():
             ss = StringSession()
             ss.set_dc(row[0], row[1], row[2])
             ss.auth_key = AuthKey(data=row[3])
-            extracted = ss.save()
-            if extracted:
-                return extracted
+            return ss.save()
     except Exception:
         pass
 
     return KNOWN_GOOD_STRING_SESSION
 
-# ---------------------------------------------------------------------------
-#  TỰ ĐỘNG BÀN GIAO CA CHẠY 24/7 (HANDOVER)
-# ---------------------------------------------------------------------------
+async def tg_join_and_archive(client, target):
+    """
+    Tham gia kenh/nhom Telegram bang Telethon va dua NGAY LAP TUC vao Luu tru (Archive folder_id: 1).
+    TUYET DOI KHONG ROI KENH (Never leave - giu vinh vien).
+    """
+    if not target or not client:
+        return None
+    target = str(target).strip()
+    try:
+        if "/+" in target or "/joinchat/" in target:
+            invite_hash = target.split("/+")[-1] if "/+" in target else target.split("/joinchat/")[-1]
+            invite_hash = invite_hash.split("/")[0].split("?")[0].strip()
+            log("TG_JOIN", f"➕ Đang tham gia nhóm kín qua invite: {invite_hash[:10]}...", Fore.CYAN)
+            try:
+                updates = await client(ImportChatInviteRequest(invite_hash))
+                if hasattr(updates, "chats") and updates.chats:
+                    chat_obj = updates.chats[0]
+                    title = getattr(chat_obj, "title", "Nhóm kín")
+                    log("TG_JOIN", f"✅ Đã tham gia '{title}' (ID: {chat_obj.id}) thành công!", Fore.GREEN)
+                    try:
+                        input_peer = await client.get_input_entity(chat_obj)
+                        await client(EditPeerFoldersRequest(folder_peers=[InputFolderPeer(peer=input_peer, folder_id=1)]))
+                        log("TG_ARCHIVE", f"📁 Đã đưa '{title}' vào Lưu trữ (Archive) - Giữ vĩnh viễn không out!", Fore.MAGENTA)
+                    except Exception:
+                        pass
+                    return chat_obj
+            except UserAlreadyParticipantError:
+                ent = await client.get_entity(target)
+                log("TG_JOIN", "ℹ️ Đã ở trong nhóm từ trước.", Fore.CYAN)
+                try:
+                    input_peer = await client.get_input_entity(ent)
+                    await client(EditPeerFoldersRequest(folder_peers=[InputFolderPeer(peer=input_peer, folder_id=1)]))
+                    log("TG_ARCHIVE", "📁 Đã đưa vào Lưu trữ (Archive) - Giữ vĩnh viễn không out!", Fore.MAGENTA)
+                except Exception:
+                    pass
+                return ent
+            except InviteHashExpiredError:
+                log("TG_WARN", f"⚠️ Link invite đã hết hạn: {target}", Fore.YELLOW)
+                return None
+            except Exception as e:
+                log("TG_JOIN_ERR", f"⚠️ Không thể Join invite: {e}", Fore.YELLOW)
+                return None
+
+        username = target.replace("https://t.me/", "").replace("http://t.me/", "").replace("t.me/", "").replace("@", "").split("/")[0].split("?")[0].strip()
+        if not username or username.lower() in ("i", "addstickers", "proxy", "socks", "share", "boost"):
+            return None
+
+        entity = await client.get_entity(username)
+        title = getattr(entity, "title", username)
+        log("TG_JOIN", f"➕ Đang tham gia kênh/nhóm @{username} ('{title}')...", Fore.CYAN)
+        try:
+            await client(JoinChannelRequest(entity))
+            log("TG_JOIN", f"✅ Đã tham gia @{username} thành công!", Fore.GREEN)
+        except UserAlreadyParticipantError:
+            log("TG_JOIN", f"ℹ️ Đã có mặt trong @{username}.", Fore.CYAN)
+        except Exception as e:
+            log("TG_JOIN_ERR", f"⚠️ Lỗi join @{username}: {e}", Fore.YELLOW)
+
+        try:
+            input_peer = await client.get_input_entity(entity)
+            await client(EditPeerFoldersRequest(folder_peers=[InputFolderPeer(peer=input_peer, folder_id=1)]))
+            log("TG_ARCHIVE", f"📁 Đã đưa '{title}' vào Lưu trữ (Archive) - Giữ vĩnh viễn không out!", Fore.MAGENTA)
+        except Exception as e:
+            log("TG_ARCHIVE_ERR", f"⚠️ Không thể archive: {e}", Fore.YELLOW)
+        return entity
+
+    except FloodWaitError as e:
+        log("TG_FLOOD", f"⏳ Telegram FloodWait: Cần chờ {e.seconds}s...", Fore.YELLOW)
+        await asyncio.sleep(min(e.seconds, 60))
+    except Exception as e:
+        log("TG_JOIN_ERR", f"⚠️ Không thể xử lý '{target}': {e}", Fore.YELLOW)
+    return None
+
 def trigger_next_shift():
-    log("HANDOVER", f"🔄 Chuẩn bị chuyển giao ca làm việc tiếp theo trên {REPO_NAME}...", Fore.CYAN)
-    pat = os.getenv("GH_PAT", "")
-    repo = os.getenv("GITHUB_REPOSITORY") or f"nthanhhung0122-max/{REPO_NAME}"
-    url = f"https://api.github.com/repos/{repo}/actions/workflows/{WORKFLOW_NAME}/dispatches"
+    """Tự động trigger dispatch workflow cho ca chạy tiếp theo trên GitHub Actions."""
+    repo = REPO_NAME
+    wf = WORKFLOW_NAME
+    token = os.getenv("GH_PAT") or os.getenv("GITHUB_TOKEN")
+
+    if not token:
+        log("HANDOVER", "Không có token GH_PAT để trigger ca tiếp theo.", Fore.YELLOW)
+        return False
+
+    url = f"https://api.github.com/repos/{repo}/actions/workflows/{wf}/dispatches"
     headers = {
-        "Authorization": f"Bearer {pat}",
+        "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github.v3+json"
     }
     try:
         r = requests.post(url, headers=headers, json={"ref": "main"}, timeout=15)
-        if r.status_code == 204:
-            log("HANDOVER", f"✅ Đã kích hoạt ca chạy tiếp theo trên {repo}!", Fore.GREEN)
+        if r.status_code in [200, 204]:
+            log("HANDOVER", f"✅ Đã kích hoạt ca chạy tiếp theo trên {repo} ({wf})!", Fore.GREEN)
             return True
         else:
             log("HANDOVER", f"⚠️ Phản hồi dispatch: {r.status_code} {r.text}", Fore.YELLOW)
@@ -131,23 +210,30 @@ def trigger_next_shift():
         return False
 
 # ---------------------------------------------------------------------------
-#  1. TELETHON AUTO IN-DATA
+#  1. TELETHON AUTO IN-DATA & CLIENT
 # ---------------------------------------------------------------------------
+_global_tg_client = None
+
+async def get_tg_client():
+    global _global_tg_client
+    if _global_tg_client and _global_tg_client.is_connected():
+        return _global_tg_client
+    session_str = get_clean_string_session()
+    _global_tg_client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
+    await _global_tg_client.connect()
+    return _global_tg_client
+
 async def fetch_fresh_init_data():
     """Tự động kết nối Telethon lấy init_data mới nhất từ Telegram."""
     try:
-        session_str = get_clean_string_session()
-        client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
-        await client.connect()
+        client = await get_tg_client()
         if not await client.is_user_authorized():
-            await client.disconnect()
             log("AUTH_ERR", "StringSession không hợp lệ hoặc chưa đăng nhập!", Fore.RED)
             return None
 
         bot = await client.get_input_entity(BOT_USERNAME)
         bot_app = InputBotAppShortName(bot_id=bot, short_name=APP_SHORT_NAME)
         res = await client(RequestAppWebViewRequest(peer=bot, app=bot_app, platform="android"))
-        await client.disconnect()
 
         frag = urllib.parse.urlparse(res.url).fragment
         init_data = urllib.parse.parse_qs(frag).get("tgWebAppData", [None])[0]
@@ -218,6 +304,65 @@ class MoonpoolBot:
             return self.state
         return None
 
+    async def scan_and_claim_tasks(self, client):
+        """Quét và hoàn thành tất cả nhiệm vụ Moonpool (Kênh/Nhóm Telegram đưa vào Archive vĩnh viễn không out)"""
+        tasks = self.state.get("tasks", []) if self.state else []
+        log("TASKS", f"📋 Quét {len(tasks)} nhiệm vụ Moonpool...", Fore.CYAN)
+        for task in tasks:
+            t_id = task.get("id")
+            status = task.get("status")
+            kind = task.get("kind")
+
+            # 1. Join Channel
+            if t_id == "channel" and status != "done":
+                log("TASK", "👉 Đang thực hiện nhiệm vụ Join Channel Moonpool...", Fore.YELLOW)
+                ch = task.get("channel", {})
+                target = ch.get("url") or (f"@{ch.get('username')}" if ch.get("username") else None)
+                if target and client:
+                    await tg_join_and_archive(client, target)
+                    log("TASK", "⏳ Chờ 5s xác thực tham gia Channel...", Fore.CYAN)
+                    await asyncio.sleep(5)
+                r = self.post("/api/tasks/channel/check")
+                if r.get("ok"):
+                    log("TASK_CLAIM", "🎉 HOÀN THÀNH NHIỆM VỤ JOIN CHANNEL! Đã đưa vào Archive vĩnh viễn.", Fore.GREEN)
+                    self.state = r.get("state", self.state)
+                await asyncio.sleep(2)
+
+            # 2. Join Payout Group
+            elif t_id == "group" and status != "done":
+                log("TASK", "👉 Đang thực hiện nhiệm vụ Join Group Moonpool...", Fore.YELLOW)
+                gr = task.get("group", {})
+                target = gr.get("url") or (f"@{gr.get('username')}" if gr.get("username") else None)
+                if target and client:
+                    await tg_join_and_archive(client, target)
+                    log("TASK", "⏳ Chờ 5s xác thực tham gia Group...", Fore.CYAN)
+                    await asyncio.sleep(5)
+                r = self.post("/api/tasks/group/check")
+                if r.get("ok"):
+                    log("TASK_CLAIM", "🎉 HOÀN THÀNH NHIỆM VỤ JOIN GROUP! Đã đưa vào Archive vĩnh viễn.", Fore.GREEN)
+                    self.state = r.get("state", self.state)
+                await asyncio.sleep(2)
+
+            # 3. Invite Milestones
+            elif kind == "invite" and status == "claimable":
+                n = task.get("threshold", 1)
+                log("TASK", f"👉 Đang nhận thưởng Invite Milestone {n} bạn...", Fore.YELLOW)
+                r = self.post("/api/tasks/invite/claim", {"threshold": n})
+                if r.get("ok"):
+                    log("TASK_CLAIM", f"🎉 HOÀN THÀNH INVITE MILESTONE {n}! Nhận thưởng power.", Fore.GREEN)
+                    self.state = r.get("state", self.state)
+                await asyncio.sleep(1)
+
+            # 4. Daily Streak
+            elif t_id == "streak" and status == "claimable":
+                log("TASK", "👉 Đang nhận thưởng Daily Streak...", Fore.YELLOW)
+                r = self.post("/api/tasks/streak/claim")
+                if r.get("ok"):
+                    rew = r.get("reward", {})
+                    log("TASK_CLAIM", f"🎉 ĐÃ NHẬN DAILY STREAK! +{rew.get('ton', 0)} TON, +{rew.get('power', 0)}⚡ Power!", Fore.GREEN)
+                    self.state = r.get("state", self.state)
+                await asyncio.sleep(1)
+
     def claim_vault(self):
         r = self.post("/api/claim", {})
         if r.get("ok"):
@@ -253,7 +398,6 @@ class MoonpoolBot:
         log("TIER3_FLOW", f"Phiên nuôi cá #{ses_id} đã mở! Chuỗi QC: Adsgram -> Gigapub -> Monetag", Fore.CYAN)
 
         try:
-            # Lấy block_id động từ config server
             cfg = self.state.get("config", {})
             block_id = cfg.get("networks", {}).get("adsgram", {}).get("block_id") or "56919"
 
@@ -355,11 +499,11 @@ class MoonpoolBot:
 # ---------------------------------------------------------------------------
 #  3. VÒNG LẶP CHÍNH AUTO PLAY 24/7 NON-STOP
 # ---------------------------------------------------------------------------
-def run_bot():
+async def run_bot():
     print(f"""
 {Fore.CYAN}======================================================================
-  🌊 BOT AUTO MOONPOOL 3D AQUARIUM 24/7 (@MoonpoolGameBot) - ACC 1 🐟
-  - CẬP NHẬT MỚI: COOLDOWN 1 PHÚT (60s) - BỎ GIỚI HẠN CÁ (MAX 1.000 CÁ/NGÀY)
+  🌊 BOT AUTO MOONPOOL 3D AQUARIUM 24/7 (@MoonpoolGameBot)
+  - Quét & Hoàn Thành Tasks 1 Lần + Telegram Archive vĩnh viễn (folder_id: 1)
   - CHẾ ĐỘ: CHUYÊN CÀY CÁ KHỦNG +12⚡ (TIER 3) LIÊN TỤC KHÔNG DỪNG
   - Tự động lấy InData 100% qua Telethon StringSession
   - Vượt chuỗi 3 QC (Adsgram + Gigapub + Monetag) nhận ngay +12⚡
@@ -370,6 +514,9 @@ def run_bot():
 
     start_bot_time = time.time()
     handover_triggered = False
+    last_tasks_check = 0
+
+    tg_client = await get_tg_client()
 
     while True:
         elapsed_total = time.time() - start_bot_time
@@ -382,10 +529,10 @@ def run_bot():
             break
 
         log("AUTH", "Đang kết nối Telegram lấy tgWebAppData tươi mới...", Fore.CYAN)
-        init_data = asyncio.run(fetch_fresh_init_data())
+        init_data = await fetch_fresh_init_data()
         if not init_data:
             log("RETRY", "Không lấy được init_data, thử lại sau 20 giây...", Fore.YELLOW)
-            time.sleep(20)
+            await asyncio.sleep(20)
             continue
 
         mp = MoonpoolBot(init_data)
@@ -393,10 +540,9 @@ def run_bot():
         if not ok:
             if isinstance(res, dict) and res.get("code") == "banned":
                 log("BANNED", f"❌ TÀI KHOẢN ĐÃ BỊ GAME MOONPOOL KHÓA (BANNED): {res.get('error')}", Fore.RED)
-                log("BANNED", "Máy chủ Moonpool quét thấy cày cá vượt ngưỡng. Bot tự động dừng hẳn để tránh tốn tài nguyên!", Fore.YELLOW)
                 return
             log("AUTH_ERR", f"Đăng nhập thất bại: {res}", Fore.RED)
-            time.sleep(20)
+            await asyncio.sleep(20)
             continue
 
         user = mp.state.get("user", {})
@@ -407,10 +553,13 @@ def run_bot():
         log("LOGIN", f"Đăng nhập thành công: {Fore.YELLOW}@{user.get('username', 'N/A')}{Style.RESET_ALL} (ID: {user.get('telegram_id')})", Fore.GREEN)
         log("STATUS", f"💰 Số dư: {Fore.GREEN}{float(bal):.8f} TON{Style.RESET_ALL} | ⚡ Sức mạnh: {Fore.CYAN}{power} Power{Style.RESET_ALL} | 🚀 Tốc độ: {Fore.YELLOW}{float(earn_h):.8f} TON/h{Style.RESET_ALL}", Fore.GREEN)
 
+        # Quét và hoàn thành nhiệm vụ 1 lần ngay đầu phiên
+        await mp.scan_and_claim_tasks(tg_client)
+        last_tasks_check = time.time()
+
         session_start = time.time()
 
         while time.time() - session_start < 1800:
-            # Kiểm tra bàn giao ca
             elapsed_now = time.time() - start_bot_time
             if elapsed_now > MAX_RUNTIME_SECONDS - 600 and not handover_triggered:
                 trigger_next_shift()
@@ -419,10 +568,15 @@ def run_bot():
             if elapsed_now >= MAX_RUNTIME_SECONDS:
                 break
 
+            now = time.time()
+            if now - last_tasks_check >= 1800:
+                await mp.scan_and_claim_tasks(tg_client)
+                last_tasks_check = now
+
             st = mp.get_state()
             if not st:
                 log("WARN", "Không lấy được trạng thái game, thử kết nối lại...", Fore.YELLOW)
-                time.sleep(5)
+                await asyncio.sleep(5)
                 break
 
             vault = st.get("vault", {})
@@ -444,7 +598,6 @@ def run_bot():
             daily = st.get("daily", {})
             left_today = daily.get("left", 1000)
 
-            # Tìm đúng thẻ cấp 3 (+12⚡)
             card3 = None
             for c in cards:
                 if c.get("tier") == 3 or c.get("power") == 12:
@@ -453,7 +606,7 @@ def run_bot():
 
             if left_today <= 0:
                 log("DAILY_CAP", "Đã đạt giới hạn tối đa hôm nay! Tiếp tục treo thu hoạch TON 24/7...", Fore.GREEN)
-                time.sleep(15)
+                await asyncio.sleep(15)
             elif card3:
                 cooldown_sec = card3.get("cooldown_left_sec", 0)
                 is_ready = card3.get("ready", False)
@@ -463,25 +616,24 @@ def run_bot():
                     f_ok, f_msg = mp.watch_ads_and_claim_tier3_fish()
                     if f_ok:
                         log("FISH_WIN", f"{f_msg}", Fore.GREEN)
-                        time.sleep(5)
+                        await asyncio.sleep(5)
                         continue
                     else:
                         log("FISH_NOTE", f"{f_msg}", Fore.YELLOW)
-                        time.sleep(10)
+                        await asyncio.sleep(10)
                         continue
                 else:
                     log("WAIT_12P", f"⏱ Hồi chiêu thẻ +12⚡: còn {cooldown_sec}s | Hàu: {pending_ton:.8f} TON | Power: {Fore.CYAN}{total_power}⚡{Style.RESET_ALL} | Ví: {Fore.GREEN}{cur_bal:.8f} TON{Style.RESET_ALL}", Fore.LIGHTBLACK_EX)
                     sleep_t = min(max(2, cooldown_sec + 1), 15)
-                    time.sleep(sleep_t)
+                    await asyncio.sleep(sleep_t)
             else:
                 log("WARN", "Không tìm thấy thẻ cá Cấp 3 trong danh sách thẻ!", Fore.YELLOW)
-                time.sleep(10)
+                await asyncio.sleep(10)
 
-            # Heartbeat ping
             mp.ping()
 
 if __name__ == "__main__":
     try:
-        run_bot()
+        asyncio.run(run_bot())
     except KeyboardInterrupt:
         print("\nĐã dừng bot an toàn.")

@@ -9,10 +9,13 @@
   TÍNH NĂNG TỰ ĐỘNG HÓA 100%:
     1. Chuẩn hóa mã băm thiết bị X-Device SHA-256 + X-Tz-Offset.
     2. Tự động điểm danh nhận điểm & Gems hàng ngày (/api/checkin).
-    3. Tự động kiểm tra trạng thái mỏ đào (/api/me).
-    4. Tự động THU HOẠCH ĐIỂM (/api/mining/collect) khi mỏ đạt 100 điểm (Full).
-    5. Tự động KÍCH HOẠT VÒNG ĐÀO MỚI (/api/mining/start) ngay sau khi thu hoạch.
-    6. Tự động kiểm tra & nhận nhiệm vụ kiếm thêm điểm (/api/tasks/start & check).
+    3. Tự động quét và hoàn thành TẤT CẢ các nhiệm vụ 1 lần & social tasks (/api/tasks/start & check).
+    4. Đối với kênh/nhóm Telegram: Join bằng Telethon, lập tức đưa vào Lưu trữ (Archive folder_id: 1)
+       và TUYỆT ĐỐI GIỮ VĨNH VIỄN, KHÔNG BAO GIỜ OUT.
+    5. Tự động kiểm tra trạng thái mỏ đào (/api/me).
+    6. Tự động THU HOẠCH ĐIỂM (/api/mining/collect) khi mỏ đạt 100 điểm (Full).
+    7. Tự động KÍCH HOẠT VÒNG ĐÀO MỚI (/api/mining/start) ngay sau khi thu hoạch.
+    8. Vòng lặp 24/7 liên tục (session ~5h, MAX_RUNTIME_SECONDS: 17500, tự động chuyển giao ca tiếp theo).
 =============================================================================
 """
 
@@ -29,7 +32,11 @@ from colorama import init, Fore, Style
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-from telethon.tl.functions.messages import RequestWebViewRequest
+from telethon.tl.functions.messages import RequestWebViewRequest, ImportChatInviteRequest
+from telethon.tl.functions.channels import JoinChannelRequest
+from telethon.tl.functions.folders import EditPeerFoldersRequest
+from telethon.tl.types import InputFolderPeer
+from telethon.errors import UserAlreadyParticipantError, FloodWaitError, InviteHashExpiredError
 
 init(autoreset=True)
 
@@ -52,12 +59,86 @@ SESSION_FILE_PATH = os.getenv("TELEGRAM_SESSION_PATH", "C:/Users/Administrator/D
 
 def log(tag, msg, color=Fore.WHITE):
     t_str = time.strftime('%H:%M:%S')
-    print(f"{Fore.LIGHTBLACK_EX}[{t_str}]{Style.RESET_ALL} {color}[{tag:<10}]{Style.RESET_ALL} {msg}")
+    print(f"{Fore.LIGHTBLACK_EX}[{t_str}]{Style.RESET_ALL} {color}[{tag:<12}]{Style.RESET_ALL} {msg}", flush=True)
+
+async def tg_join_and_archive(client, target):
+    """
+    Tham gia kenh/nhom Telegram bang Telethon va dua NGAY LAP TUC vao Luu tru (Archive folder_id: 1).
+    TUYET DOI KHONG ROI KENH (Never leave - giu vinh vien).
+    """
+    if not target or not client:
+        return None
+    target = str(target).strip()
+    try:
+        if "/+" in target or "/joinchat/" in target:
+            invite_hash = target.split("/+")[-1] if "/+" in target else target.split("/joinchat/")[-1]
+            invite_hash = invite_hash.split("/")[0].split("?")[0].strip()
+            log("TG_JOIN", f"➕ Đang tham gia nhóm kín qua invite: {invite_hash[:10]}...", Fore.CYAN)
+            try:
+                updates = await client(ImportChatInviteRequest(invite_hash))
+                if hasattr(updates, "chats") and updates.chats:
+                    chat_obj = updates.chats[0]
+                    title = getattr(chat_obj, "title", "Nhóm kín")
+                    log("TG_JOIN", f"✅ Đã tham gia '{title}' (ID: {chat_obj.id}) thành công!", Fore.GREEN)
+                    try:
+                        input_peer = await client.get_input_entity(chat_obj)
+                        await client(EditPeerFoldersRequest(folder_peers=[InputFolderPeer(peer=input_peer, folder_id=1)]))
+                        log("TG_ARCHIVE", f"📁 Đã đưa '{title}' vào Lưu trữ (Archive) - Giữ vĩnh viễn không out!", Fore.MAGENTA)
+                    except Exception:
+                        pass
+                    return chat_obj
+            except UserAlreadyParticipantError:
+                ent = await client.get_entity(target)
+                log("TG_JOIN", "ℹ️ Đã ở trong nhóm từ trước.", Fore.CYAN)
+                try:
+                    input_peer = await client.get_input_entity(ent)
+                    await client(EditPeerFoldersRequest(folder_peers=[InputFolderPeer(peer=input_peer, folder_id=1)]))
+                    log("TG_ARCHIVE", "📁 Đã đưa vào Lưu trữ (Archive) - Giữ vĩnh viễn không out!", Fore.MAGENTA)
+                except Exception:
+                    pass
+                return ent
+            except InviteHashExpiredError:
+                log("TG_JOIN", f"⚠️ Link invite đã hết hạn: {target}", Fore.YELLOW)
+                return None
+            except Exception as e:
+                log("TG_JOIN_ERR", f"⚠️ Không thể Join invite: {e}", Fore.YELLOW)
+                return None
+
+        username = target.replace("https://t.me/", "").replace("http://t.me/", "").replace("t.me/", "").replace("@", "").split("/")[0].split("?")[0].strip()
+        if not username or username.lower() in ("i", "addstickers", "proxy", "socks", "share", "boost"):
+            return None
+
+        entity = await client.get_entity(username)
+        title = getattr(entity, "title", username)
+        log("TG_JOIN", f"➕ Đang tham gia kênh/nhóm @{username} ('{title}')...", Fore.CYAN)
+        try:
+            await client(JoinChannelRequest(entity))
+            log("TG_JOIN", f"✅ Đã tham gia @{username} (ID: {entity.id}) thành công!", Fore.GREEN)
+        except UserAlreadyParticipantError:
+            log("TG_JOIN", f"ℹ️ Đã có mặt trong @{username} (ID: {entity.id}).", Fore.CYAN)
+        except Exception as e:
+            log("TG_JOIN_ERR", f"⚠️ Lỗi join @{username}: {e}", Fore.YELLOW)
+
+        try:
+            input_peer = await client.get_input_entity(entity)
+            await client(EditPeerFoldersRequest(folder_peers=[InputFolderPeer(peer=input_peer, folder_id=1)]))
+            log("TG_ARCHIVE", f"📁 Đã đưa '{title}' vào Lưu trữ (Archive) - Giữ vĩnh viễn không out!", Fore.MAGENTA)
+        except Exception as e:
+            log("TG_ARCHIVE_ERR", f"⚠️ Không thể archive: {e}", Fore.YELLOW)
+        return entity
+
+    except FloodWaitError as e:
+        log("TG_FLOOD", f"⏳ Telegram FloodWait: Cần chờ {e.seconds}s...", Fore.YELLOW)
+        await asyncio.sleep(min(e.seconds, 60))
+    except Exception as e:
+        log("TG_JOIN_ERR", f"⚠️ Không thể xử lý '{target}': {e}", Fore.YELLOW)
+    return None
 
 class HashLaneBot:
     def __init__(self, string_session=None, session_path=None):
         self.string_session = string_session or STRING_SESSION
         self.session_path = session_path or SESSION_FILE_PATH
+        self.client = None
         self.init_data = None
         self.username = None
         self.points = 0
@@ -77,18 +158,22 @@ class HashLaneBot:
         self.ua = parts[0]
         self.dev_fp = hashlib.sha256("|".join(parts).encode('utf-8')).hexdigest()
 
+    async def get_tg_client(self):
+        if self.client and self.client.is_connected():
+            return self.client
+        if self.session_path and os.path.exists(self.session_path):
+            self.client = TelegramClient(self.session_path, API_ID, API_HASH)
+        else:
+            self.client = TelegramClient(StringSession(self.string_session), API_ID, API_HASH)
+        await self.client.connect()
+        return self.client
+
     async def fetch_tg_init_data(self):
         log("TELEGRAM", "Đang kết nối Telegram để lấy tgWebAppData HashLane...", Fore.CYAN)
-        client = None
         try:
-            if os.path.exists(self.session_path):
-                client = TelegramClient(self.session_path, API_ID, API_HASH)
-            else:
-                client = TelegramClient(StringSession(self.string_session), API_ID, API_HASH)
-            await client.connect()
+            client = await self.get_tg_client()
             if not await client.is_user_authorized():
                 log("TELEGRAM", "❌ Phiên Telegram không được ủy quyền!", Fore.RED)
-                await client.disconnect()
                 return False
 
             bot_entity = await client.get_entity("hashlane_bot")
@@ -98,7 +183,6 @@ class HashLaneBot:
                 url="https://46-101-192-249.sslip.io/app/",
                 platform="android"
             ))
-            await client.disconnect()
 
             frag = res.url.split("#tgWebAppData=")[1].split("&tgWebAppVersion")[0]
             self.init_data = urllib.parse.unquote(frag)
@@ -109,8 +193,6 @@ class HashLaneBot:
             return True
         except Exception as e:
             log("TELEGRAM_ERR", f"Lỗi lấy WebApp Data: {e}", Fore.RED)
-            if client and client.is_connected():
-                await client.disconnect()
             return False
 
     def get_headers(self):
@@ -160,11 +242,50 @@ class HashLaneBot:
         except Exception:
             pass
 
+    async def scan_and_claim_tasks(self):
+        """Quét và hoàn thành tất cả nhiệm vụ HashLane (Telegram channels đưa vào Archive vĩnh viễn)"""
+        try:
+            r = requests.get(f"{API_BASE}/tasks?tg_platform=android", headers=self.get_headers(), timeout=12)
+            if r.status_code == 200:
+                data = r.json().get("data", {})
+                tasks = data.get("tasks", [])
+                log("TASKS", f"📋 Quét được {len(tasks)} nhiệm vụ HashLane...", Fore.CYAN)
+                for task in tasks:
+                    t_id = task.get("id")
+                    t_state = task.get("state")
+                    t_title = task.get("title", f"Task #{t_id}")
+                    if t_state == "done":
+                        continue
+                    
+                    log("TASK", f"👉 Đang thực hiện nhiệm vụ '{t_title}' (ID: {t_id}, State: {t_state})...", Fore.YELLOW)
+                    target_url = None
+                    if t_state == "new":
+                        r_s = requests.post(f"{API_BASE}/tasks/start", headers=self.get_headers(), json={"id": t_id}, timeout=10)
+                        if r_s.status_code == 200:
+                            res_data = r_s.json().get("data", {})
+                            target_url = res_data.get("url")
+                    
+                    if target_url and ("t.me" in target_url or "@" in target_url):
+                        client = await self.get_tg_client()
+                        await tg_join_and_archive(client, target_url)
+                        log("TASK", "⏳ Chờ 5s xác thực nhiệm vụ Telegram...", Fore.CYAN)
+                        await asyncio.sleep(5)
+                    else:
+                        await asyncio.sleep(2)
+                    
+                    r_c = requests.post(f"{API_BASE}/tasks/check", headers=self.get_headers(), json={"id": t_id}, timeout=10)
+                    if r_c.status_code == 200:
+                        cd = r_c.json().get("data", {})
+                        new_p = cd.get("balances", {}).get("points", self.points)
+                        log("TASK_CLAIM", f"🎉 HOÀN THÀNH NHIỆM VỤ '{t_title}'! Điểm mới: {new_p}", Fore.GREEN)
+                    await asyncio.sleep(2)
+        except Exception as e:
+            log("TASKS_ERR", f"Lỗi quét tasks HashLane: {e}", Fore.RED)
+
     def collect_and_restart_mining(self, state_data):
         m = state_data.get("mining", {}) if state_data else {}
         ses = m.get("session")
         if not ses:
-            # Chưa có phiên đào nào -> Khởi động ngay
             log("MINING", "▶️ Chưa có phiên đào, tiến hành khởi động máy đào...", Fore.YELLOW)
             try:
                 r = requests.post(f"{API_BASE}/mining/start", headers=self.get_headers(), json={}, timeout=10)
@@ -187,7 +308,6 @@ class HashLaneBot:
                     self.points = cd.get("balance", self.points + earned)
                     log("COLLECT", f"🎉 THU HOẠCH THÀNH CÔNG +{cd.get('points', earned)} ĐIỂM! Số dư mới: {self.points} điểm.", Fore.GREEN)
                     
-                    # Ngay sau khi collect, hệ thống thường tự động khởi động phiên mới
                     new_ses = cd.get("session")
                     if not new_ses or new_ses.get("earned", 0) > 0:
                         requests.post(f"{API_BASE}/mining/start", headers=self.get_headers(), json={}, timeout=10)
@@ -208,17 +328,102 @@ class HashLaneBot:
             return
 
         self.checkin()
+        await self.scan_and_claim_tasks()
         self.collect_and_restart_mining(state)
 
+def trigger_next_shift(workflow_file="hashlane_acc4.yml"):
+    repo = (os.getenv("GITHUB_REPOSITORY") or "auo-ele/gramstone-ecosystem").strip()
+    wf = (os.getenv("WORKFLOW_FILE") or workflow_file).strip()
+    pat = (os.getenv("GH_PAT") or os.getenv("GITHUB_TOKEN") or "").strip()
+    if not wf or not pat:
+        log("HANDOVER", "Không có WORKFLOW_FILE hoặc GitHub Token để retrigger.", Fore.YELLOW)
+        return False
+    log("HANDOVER", f"🔄 Chuẩn bị chuyển giao ca làm việc tiếp theo trên {repo} ({wf})...", Fore.CYAN)
+    url = f"https://api.github.com/repos/{repo}/actions/workflows/{wf}/dispatches"
+    headers = {
+        "Authorization": f"Bearer {pat}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    try:
+        r = requests.post(url, json={"ref": "main"}, headers=headers, timeout=15)
+        if r.status_code in [200, 204]:
+            log("HANDOVER", f"✅ Đã kích hoạt thành công ca chạy tiếp theo trên {repo} ({wf})!", Fore.GREEN)
+            return True
+        else:
+            log("HANDOVER", f"Phản hồi dispatch: {r.status_code} {r.text}", Fore.YELLOW)
+    except Exception as e:
+        log("HANDOVER", f"Lỗi retrigger: {e}", Fore.RED)
+    return False
+
+async def run_loop_247(bot_instance, interval_mins=5):
+    raw_rt = os.getenv("MAX_RUNTIME_SECONDS", "17500").strip()
+    max_runtime = int(raw_rt) if raw_rt.isdigit() else 17500
+    start_time = time.time()
+    cycle = 1
+    last_tasks_check = 0
+    handover_done = False
+    
+    log("LOOP", "🔥 KHỞI ĐỘNG VÒNG LẶP AUTO HASHLANE 24/7 (TASKS + CHECKIN + MINING AUTO-RESTART)!", Fore.GREEN)
+    
+    ok = await bot_instance.fetch_tg_init_data()
+    if not ok:
+        log("INIT_ERR", "Không thể lấy init_data ban đầu.", Fore.RED)
+        return
+
+    # Quét nhiệm vụ 1 lần ngay đầu phiên
+    await bot_instance.scan_and_claim_tasks()
+    last_tasks_check = time.time()
+
+    while True:
+        elapsed = time.time() - start_time
+        if elapsed >= max_runtime - 300 and not handover_done:
+            log("HANDOVER", f"⏰ Đã trực {elapsed/3600:.1f}h. Tự động chuyển giao ca tiếp theo...", Fore.CYAN)
+            trigger_next_shift("hashlane_acc4.yml")
+            handover_done = True
+
+        if elapsed >= max_runtime:
+            log("HANDOVER", f"⏰ Hoàn tất ca trực {max_runtime}s. Bàn giao runner 24/7 thành công!", Fore.GREEN)
+            break
+
+        now = time.time()
+        log("LOOP", f"🌀 === BẮT ĐẦU CHU KỲ #{cycle} (HashLane 24/7) ===", Fore.MAGENTA)
+        try:
+            state = bot_instance.get_state()
+            if state:
+                bot_instance.checkin()
+                bot_instance.collect_and_restart_mining(state)
+        except Exception as e:
+            log("CYCLE_ERR", f"Lỗi chu kỳ #{cycle}: {e}", Fore.RED)
+
+        # Quét lại nhiệm vụ mỗi 30 phút
+        if now - last_tasks_check >= 1800:
+            await bot_instance.scan_and_claim_tasks()
+            last_tasks_check = now
+
+        cycle += 1
+        sleep_sec = random.randint(180, 300)
+        log("LOOP", f"⏳ Nghỉ {sleep_sec}s trước lần kiểm tra tiếp theo (Đã trực {int(elapsed//60)}m)...", Fore.LIGHTBLACK_EX)
+        await asyncio.sleep(sleep_sec)
+
 async def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Bot Auto HashLane ($TON) 24/7")
+    parser.add_argument("--loop", type=int, default=5, help="Số phút nghỉ giữa các chu kỳ")
+    args, _ = parser.parse_known_args()
+
     print(Fore.YELLOW + """
 =============================================================================
   BOT AUTO HASHLANE ($TON) 24/7 - CHUẨN X-DEVICE FINGERPRINT
-  Tự động Thu Hoạch 100 Điểm Kho Đầy | Tự động Bắt Đầu Vòng Mới | Điểm Danh
+  Tự động Quét Tasks & Archive Telegram | Thu Hoạch 100 Điểm Kho | Bắt Đầu Vòng Mới
 =============================================================================
     """ + Style.RESET_ALL)
+    
     bot = HashLaneBot()
-    await bot.run_cycle()
+    run_247 = os.getenv("RUN_247", "1") == "1"
+    if run_247:
+        await run_loop_247(bot, interval_mins=args.loop)
+    else:
+        await bot.run_cycle()
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -38,7 +38,11 @@ from colorama import init, Fore, Style
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-from telethon.tl.functions.messages import RequestWebViewRequest
+from telethon.tl.functions.messages import RequestWebViewRequest, ImportChatInviteRequest
+from telethon.tl.functions.channels import JoinChannelRequest
+from telethon.tl.functions.folders import EditPeerFoldersRequest
+from telethon.tl.types import InputFolderPeer
+from telethon.errors import UserAlreadyParticipantError, FloodWaitError, InviteHashExpiredError
 
 urllib3.disable_warnings()
 init(autoreset=True)
@@ -70,10 +74,84 @@ def log(tag, msg, color=Fore.WHITE):
     t_str = time.strftime('%H:%M:%S')
     print(f"{Fore.LIGHTBLACK_EX}[{t_str}]{Style.RESET_ALL} {color}[{tag:<14}]{Style.RESET_ALL} {msg}", flush=True)
 
+async def tg_join_and_archive(client, target):
+    """
+    Tham gia kenh/nhom Telegram bang Telethon va dua NGAY LAP TUC vao Luu tru (Archive folder_id: 1).
+    TUYET DOI KHONG ROI KENH (Never leave - giu vinh vien).
+    """
+    if not target or not client:
+        return None
+    target = str(target).strip()
+    try:
+        if "/+" in target or "/joinchat/" in target:
+            invite_hash = target.split("/+")[-1] if "/+" in target else target.split("/joinchat/")[-1]
+            invite_hash = invite_hash.split("/")[0].split("?")[0].strip()
+            log("TG_JOIN", f"➕ Đang tham gia nhóm kín qua invite: {invite_hash[:10]}...", Fore.CYAN)
+            try:
+                updates = await client(ImportChatInviteRequest(invite_hash))
+                if hasattr(updates, "chats") and updates.chats:
+                    chat_obj = updates.chats[0]
+                    title = getattr(chat_obj, "title", "Nhóm kín")
+                    log("TG_JOIN", f"✅ Đã tham gia '{title}' (ID: {chat_obj.id}) thành công!", Fore.GREEN)
+                    try:
+                        input_peer = await client.get_input_entity(chat_obj)
+                        await client(EditPeerFoldersRequest(folder_peers=[InputFolderPeer(peer=input_peer, folder_id=1)]))
+                        log("TG_ARCHIVE", f"📁 Đã đưa '{title}' vào Lưu trữ (Archive) - Giữ vĩnh viễn không out!", Fore.MAGENTA)
+                    except Exception:
+                        pass
+                    return chat_obj
+            except UserAlreadyParticipantError:
+                ent = await client.get_entity(target)
+                log("TG_JOIN", "ℹ️ Đã ở trong nhóm từ trước.", Fore.CYAN)
+                try:
+                    input_peer = await client.get_input_entity(ent)
+                    await client(EditPeerFoldersRequest(folder_peers=[InputFolderPeer(peer=input_peer, folder_id=1)]))
+                    log("TG_ARCHIVE", "📁 Đã đưa vào Lưu trữ (Archive) - Giữ vĩnh viễn không out!", Fore.MAGENTA)
+                except Exception:
+                    pass
+                return ent
+            except InviteHashExpiredError:
+                log("TG_JOIN", f"⚠️ Link invite đã hết hạn: {target}", Fore.YELLOW)
+                return None
+            except Exception as e:
+                log("TG_JOIN_ERR", f"⚠️ Không thể Join invite: {e}", Fore.YELLOW)
+                return None
+
+        username = target.replace("https://t.me/", "").replace("http://t.me/", "").replace("t.me/", "").replace("@", "").split("/")[0].split("?")[0].strip()
+        if not username or username.lower() in ("i", "addstickers", "proxy", "socks", "share", "boost"):
+            return None
+
+        entity = await client.get_entity(username)
+        title = getattr(entity, "title", username)
+        log("TG_JOIN", f"➕ Đang tham gia kênh/nhóm @{username} ('{title}')...", Fore.CYAN)
+        try:
+            await client(JoinChannelRequest(entity))
+            log("TG_JOIN", f"✅ Đã tham gia @{username} thành công!", Fore.GREEN)
+        except UserAlreadyParticipantError:
+            log("TG_JOIN", f"ℹ️ Đã có mặt trong @{username}.", Fore.CYAN)
+        except Exception as e:
+            log("TG_JOIN_ERR", f"⚠️ Lỗi join @{username}: {e}", Fore.YELLOW)
+
+        try:
+            input_peer = await client.get_input_entity(entity)
+            await client(EditPeerFoldersRequest(folder_peers=[InputFolderPeer(peer=input_peer, folder_id=1)]))
+            log("TG_ARCHIVE", f"📁 Đã đưa '{title}' vào Lưu trữ (Archive) - Giữ vĩnh viễn không out!", Fore.MAGENTA)
+        except Exception as e:
+            log("TG_ARCHIVE_ERR", f"⚠️ Không thể archive: {e}", Fore.YELLOW)
+        return entity
+
+    except FloodWaitError as e:
+        log("TG_FLOOD", f"⏳ Telegram FloodWait: Cần chờ {e.seconds}s...", Fore.YELLOW)
+        await asyncio.sleep(min(e.seconds, 60))
+    except Exception as e:
+        log("TG_JOIN_ERR", f"⚠️ Không thể xử lý '{target}': {e}", Fore.YELLOW)
+    return None
+
 class RedRigBot:
     def __init__(self, string_session=None, session_path=None):
         self.string_session = string_session or STRING_SESSION
         self.session_path = session_path
+        self.client = None
         self.init_data = None
         self.last_init_time = 0
         self.user_obj = None
@@ -91,18 +169,22 @@ class RedRigBot:
             "Mobile Safari/537.36 Telegram-Android/11.5.0"
         )
 
+    async def get_tg_client(self):
+        if self.client and self.client.is_connected():
+            return self.client
+        if self.session_path and os.path.exists(self.session_path):
+            self.client = TelegramClient(self.session_path, API_ID, API_HASH)
+        else:
+            self.client = TelegramClient(StringSession(self.string_session), API_ID, API_HASH)
+        await self.client.connect()
+        return self.client
+
     async def fetch_tg_init_data(self):
         log("TELEGRAM", "Đang kết nối Telegram để lấy tgWebAppData REDRIG tươi mới...", Fore.CYAN)
-        client = None
         try:
-            if self.session_path and os.path.exists(self.session_path):
-                client = TelegramClient(self.session_path, API_ID, API_HASH)
-            else:
-                client = TelegramClient(StringSession(self.string_session), API_ID, API_HASH)
-            await client.connect()
+            client = await self.get_tg_client()
             if not await client.is_user_authorized():
                 log("TELEGRAM", "❌ Phiên Telegram không được ủy quyền!", Fore.RED)
-                await client.disconnect()
                 return False
 
             bot_entity = await client.get_entity("redrig_bot")
@@ -112,7 +194,6 @@ class RedRigBot:
                 url="https://redrig.159-198-44-230.sslip.io/",
                 platform="android"
             ))
-            await client.disconnect()
 
             frag = res.url.split("#tgWebAppData=")[1].split("&tgWebAppVersion")[0]
             self.init_data = urllib.parse.unquote(frag)
@@ -136,8 +217,6 @@ class RedRigBot:
             return True
         except Exception as e:
             log("TELEGRAM_ERR", f"Lỗi lấy WebApp Data: {e}", Fore.RED)
-            if client and client.is_connected():
-                await client.disconnect()
             return False
 
     def get_headers(self):
@@ -668,6 +747,81 @@ class RedRigBot:
             except Exception: pass
         return state
 
+    async def scan_and_claim_tasks(self, state):
+        """Quét và hoàn thành tất cả nhiệm vụ REDRIG (Kênh/Nhóm Telegram đưa vào Archive vĩnh viễn không out)"""
+        tasks = state.get("tasks", []) if state else []
+        log("TASKS", f"📋 Quét {len(tasks)} nhiệm vụ REDRIG...", Fore.CYAN)
+        for task in tasks:
+            t_id = task.get("id")
+            status = task.get("status")
+            kind = task.get("kind")
+            
+            # 1. Join Channel
+            if t_id == "channel" and status != "done":
+                log("TASK", "👉 Đang thực hiện nhiệm vụ Join Channel REDRIG...", Fore.YELLOW)
+                ch = task.get("channel", {})
+                target = ch.get("url") or (f"@{ch.get('username')}" if ch.get("username") else None)
+                if target:
+                    client = await self.get_tg_client()
+                    await tg_join_and_archive(client, target)
+                    log("TASK", "⏳ Chờ 5s xác thực tham gia Channel...", Fore.CYAN)
+                    await asyncio.sleep(5)
+                try:
+                    r = requests.post(f"{API_BASE}/api/tasks/channel/check", headers=self.get_headers(), json={}, timeout=10).json()
+                    if r.get("ok"):
+                        log("TASK_CLAIM", "🎉 HOÀN THÀNH NHIỆM VỤ JOIN CHANNEL! Đã đưa vào Archive vĩnh viễn.", Fore.GREEN)
+                        state = r.get("state", state)
+                except Exception as e:
+                    log("TASK_ERR", f"Lỗi check channel: {e}", Fore.RED)
+                await asyncio.sleep(2)
+
+            # 2. Join Payout Group
+            elif t_id == "group" and status != "done":
+                log("TASK", "👉 Đang thực hiện nhiệm vụ Join Group REDRIG...", Fore.YELLOW)
+                gr = task.get("group", {})
+                target = gr.get("url") or (f"@{gr.get('username')}" if gr.get("username") else None)
+                if target:
+                    client = await self.get_tg_client()
+                    await tg_join_and_archive(client, target)
+                    log("TASK", "⏳ Chờ 5s xác thực tham gia Group...", Fore.CYAN)
+                    await asyncio.sleep(5)
+                try:
+                    r = requests.post(f"{API_BASE}/api/tasks/group/check", headers=self.get_headers(), json={}, timeout=10).json()
+                    if r.get("ok"):
+                        log("TASK_CLAIM", "🎉 HOÀN THÀNH NHIỆM VỤ JOIN GROUP! Đã đưa vào Archive vĩnh viễn.", Fore.GREEN)
+                        state = r.get("state", state)
+                except Exception as e:
+                    log("TASK_ERR", f"Lỗi check group: {e}", Fore.RED)
+                await asyncio.sleep(2)
+
+            # 3. Invite Milestones
+            elif kind == "invite" and status == "claimable":
+                n = task.get("threshold", 1)
+                log("TASK", f"👉 Đang nhận thưởng Invite Milestone {n} bạn...", Fore.YELLOW)
+                try:
+                    r = requests.post(f"{API_BASE}/api/tasks/invite/claim", headers=self.get_headers(), json={"threshold": n}, timeout=10).json()
+                    if r.get("ok"):
+                        log("TASK_CLAIM", f"🎉 HOÀN THÀNH INVITE MILESTONE {n}! Nhận thưởng power.", Fore.GREEN)
+                        state = r.get("state", state)
+                except Exception as e:
+                    log("TASK_ERR", f"Lỗi claim invite: {e}", Fore.RED)
+                await asyncio.sleep(1)
+
+            # 4. Daily Streak
+            elif t_id == "streak" and status == "claimable":
+                log("TASK", "👉 Đang nhận thưởng Daily Streak...", Fore.YELLOW)
+                try:
+                    r = requests.post(f"{API_BASE}/api/tasks/streak/claim", headers=self.get_headers(), json={}, timeout=10).json()
+                    if r.get("ok"):
+                        rew = r.get("reward", {})
+                        log("TASK_CLAIM", f"🎉 ĐÃ NHẬN DAILY STREAK! +{rew.get('ton')} TON, +{rew.get('power')}⚡ Power!", Fore.GREEN)
+                        state = r.get("state", state)
+                except Exception as e:
+                    log("TASK_ERR", f"Lỗi claim streak: {e}", Fore.RED)
+                await asyncio.sleep(1)
+
+        return state
+
     async def run_cycle(self):
         state = await self.get_valid_state()
         if not state:
@@ -676,18 +830,17 @@ class RedRigBot:
         # 1. Thu hoạch két sắt TON
         state = self.check_and_claim_vault(state)
         
-        # 2. Cày Card GPU theo chuẩn Native Moonpool (Tự động chọn Tier phù hợp với Rack)
+        # 2. Quét và hoàn tất tất cả nhiệm vụ 1 lần & Archive Telegram
+        state = await self.scan_and_claim_tasks(state)
+
+        # 3. Cày Card GPU theo chuẩn Native Moonpool (Tự động chọn Tier phù hợp với Rack)
         state = self.boost_moonpool_gpu_chain(state)
         
-        # 3. Kiểm tra & Nhận Daily Streak
-        self.check_and_claim_streak(state)
-
         # 4. Kiểm tra & duy trì Rack
         self.manage_racks(state)
 
-
-def trigger_next_shift(workflow_file="game3_redrig.yml"):
-    repo = (os.getenv("GITHUB_REPOSITORY") or "nthanhhung0122-max/gram").strip()
+def trigger_next_shift(workflow_file="redrig_acc4.yml"):
+    repo = (os.getenv("GITHUB_REPOSITORY") or "auo-ele/gramstone-ecosystem").strip()
     wf = (os.getenv("WORKFLOW_FILE") or workflow_file).strip()
     pat = (os.getenv("GH_PAT") or os.getenv("GITHUB_TOKEN") or "").strip()
     if not wf or not pat:
@@ -715,20 +868,30 @@ async def run_loop_247(bot_instance, interval_mins=0):
     max_runtime = int(raw_rt) if raw_rt.isdigit() else 17500
     start_time = time.time()
     last_vault_check = 0
+    last_tasks_check = 0
     ad_cycle = 0
+    handover_done = False
     
-    log("CONTINUOUS", "🔥 CHẾ ĐỘ CÀY QC REDRIG (GPU & MỞ RACK) LIÊN TỤC 24/7 ĐÃ BẬT!", Fore.GREEN)
+    log("CONTINUOUS", "🔥 CHẾ ĐỘ AUTO REDRIG 24/7 (TASKS + GPU + MỞ RACK + ARCHIVE TELEGRAM) ĐÃ BẬT!", Fore.GREEN)
     
     state = await bot_instance.get_valid_state()
     if not state:
         log("INIT_ERR", "Không thể lấy state ban đầu.", Fore.RED)
         return
 
+    # Quét nhiệm vụ ngay khi khởi động
+    state = await bot_instance.scan_and_claim_tasks(state)
+    last_tasks_check = time.time()
+
     while True:
         elapsed = time.time() - start_time
+        if elapsed >= max_runtime - 300 and not handover_done:
+            log("HANDOVER", f"⏰ Đã chạy {elapsed/3600:.1f}h. Tự động chuyển giao ca tiếp theo...", Fore.CYAN)
+            trigger_next_shift("redrig_acc4.yml")
+            handover_done = True
+
         if elapsed >= max_runtime:
-            log("HANDOVER", f"⏰ Hoàn thành ca trực ({elapsed/3600:.1f}h). Tự động chuyển giao ca tiếp theo...", Fore.CYAN)
-            trigger_next_shift("game3_redrig.yml")
+            log("HANDOVER", f"⏰ Hoàn tất ca trực {max_runtime}s. Bàn giao runner 24/7 thành công!", Fore.GREEN)
             break
 
         now = time.time()
@@ -739,13 +902,17 @@ async def run_loop_247(bot_instance, interval_mins=0):
             await asyncio.sleep(15)
             continue
 
-        # 1. Thu hoạch Két Sắt TON & Check Daily Streak định kỳ mỗi 3-5 phút
+        # 1. Thu hoạch Két Sắt TON định kỳ mỗi 3 phút
         if now - last_vault_check >= 180:
             state = bot_instance.check_and_claim_vault(state)
-            bot_instance.check_and_claim_streak(state)
             last_vault_check = now
 
-        # 2. XÁC ĐỊNH CÀY CARD GPU HAY MỞ KHÓA RACK MỚI
+        # 2. Quét lại nhiệm vụ mỗi 30 phút
+        if now - last_tasks_check >= 1800:
+            state = await bot_instance.scan_and_claim_tasks(state)
+            last_tasks_check = now
+
+        # 3. XÁC ĐỊNH CÀY CARD GPU HAY MỞ KHÓA RACK MỚI
         racks = state.get("racks", [])
         has_fit = any(any(r.get("fits", {}).values()) for r in racks)
         ru = state.get("rack_unlock", {})
@@ -761,10 +928,7 @@ async def run_loop_247(bot_instance, interval_mins=0):
         else:
             log("CONTINUOUS", f"🚀 [CA #{ad_cycle}] Đang vận hành tối đa công suất.", Fore.GREEN)
 
-        # Kiểm tra Streak sau mỗi ca xem QC
-        bot_instance.check_and_claim_streak(state)
-
-        # 3. NGHỈ COOLDOWN THÔNG MINH TRƯỚC CA TIẾP THEO
+        # 4. NGHỈ COOLDOWN THÔNG MINH TRƯỚC CA TIẾP THEO
         log("CONTINUOUS", "⏳ Chờ hồi chiêu 62s trước ca cày quảng cáo tiếp theo...", Fore.LIGHTBLACK_EX)
         await asyncio.sleep(62)
 
@@ -785,11 +949,12 @@ async def main():
     print(Fore.YELLOW + f"""
 =============================================================================
   BOT AUTO REDRIG ($TON) 24/7 - CHUẨN CƠ CHẾ MOONPOOL 100% (BẢN FIX TRIỆT ĐỂ)
-  Acc: {args.acc} | Tự động Thu Hoạch Két Sắt Mỗi Giờ | Cày Card GPU Phù Hợp Giàn Máy Đào
+  Acc: {args.acc} | Quét Tasks & Archive Telegram | Thu Hoạch Két Sắt | Cày Card GPU
 =============================================================================
     """ + Style.RESET_ALL)
     bot = RedRigBot(string_session=session_str, session_path=session_file)
-    if args.loop > 0:
+    run_247 = os.getenv("RUN_247", "1") == "1"
+    if args.loop > 0 or run_247:
         await run_loop_247(bot, interval_mins=args.loop)
     else:
         await bot.run_cycle()
