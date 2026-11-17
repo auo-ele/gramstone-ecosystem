@@ -417,6 +417,31 @@ class MoonpoolBot:
                 await asyncio.sleep(1)
 
     def claim_vault(self):
+        """Thu hoạch vỏ Hàu: Tự động chạy quy trình xem QC nhận x2 TON (/api/x2/begin) trước khi nhận!"""
+        # Thử nhận x2 trước nếu đủ điều kiện
+        try:
+            r_begin = self.post("/api/x2/begin", {})
+            if r_begin.get("ok") and r_begin.get("session"):
+                x2_ses = r_begin.get("session")
+                x2_id = x2_ses.get("id")
+                chain = x2_ses.get("chain", ["adsgram", "gigapub", "monetag"])
+                log("X2_VAULT", f"🔥 Đang kích hoạt thu hoạch x2 TON (Session #{x2_id}, Chuỗi {len(chain)} QC)...", Fore.MAGENTA)
+                
+                # Thực hiện các bước QC theo chuỗi x2
+                for net in chain:
+                    time.sleep(6.5)
+                    self.post("/api/x2/step", {"session_id": x2_id, "network": net})
+                
+                # Claim với session_id đã nhận x2
+                r_x2_claim = self.post("/api/claim", {"x2_session_id": x2_id})
+                if r_x2_claim.get("ok"):
+                    self.state = r_x2_claim.get("state", {})
+                    log("X2_CLAIM", f"🎉 THU HOẠCH X2 THÀNH CÔNG! TON x2 đã cộng vào ví!", Fore.GREEN)
+                    return True, r_x2_claim
+        except Exception as e:
+            log("X2_WARN", f"Lỗi claim x2, chuyển sang claim thường: {e}", Fore.YELLOW)
+
+        # Nếu x2 bị capped hoặc quá sớm (too_early), thực hiện claim thông thường
         r = self.post("/api/claim", {})
         if r.get("ok"):
             self.state = r.get("state", {})
