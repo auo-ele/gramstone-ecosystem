@@ -411,7 +411,30 @@ class GramstoneBot:
         
         log("VAULT", f"⛏️ Kho mỏ Vault: {elapsed:.0f}/{claim_interval}s ({pct:.1f}%)", Fore.CYAN)
         if elapsed >= claim_interval:
-            log("VAULT", "🎉 Kho mỏ đã đạt 100%! Tiến hành thu hoạch miễn phí (Ad-free TOPLA)...", Fore.YELLOW)
+            # 1. Thử quy trình 2x Topla trước
+            log("VAULT", "🎉 Kho mỏ đã đạt 100%! Bắt đầu quy trình thu hoạch x2 GRAM (/api/collect2x/start)...", Fore.MAGENTA)
+            try:
+                r_2x_start = requests.post(f"{API_BASE}/api/collect2x/start", headers=self.get_headers(), json={"telegram_id": self.user_id}, timeout=10)
+                if r_2x_start.status_code == 200 and r_2x_start.json().get("ok"):
+                    s2x = r_2x_start.json().get("session", {})
+                    ses_id = s2x.get("id")
+                    chain = r_2x_start.json().get("chain", ["adsgram", "gigapub", "monetag"])
+                    log("VAULT_2X", f"🔥 Đã mở phiên x2 #{ses_id}! Chuỗi QC: {' -> '.join(chain)}", Fore.MAGENTA)
+                    for net in chain:
+                        time.sleep(6.5)
+                        requests.post(f"{API_BASE}/api/collect2x/step", headers=self.get_headers(), json={"telegram_id": self.user_id, "session_id": ses_id, "network": net, "ok": True}, timeout=10)
+                    r_fin = requests.post(f"{API_BASE}/api/collect2x/finish", headers=self.get_headers(), json={"telegram_id": self.user_id, "session_id": ses_id}, timeout=10)
+                    if r_fin.status_code == 200 and r_fin.json().get("ok"):
+                        fin_data = r_fin.json()
+                        amt = fin_data.get("claimedAmount", 0)
+                        u = fin_data.get("user", {})
+                        self.balance = float(u.get("balance", self.balance))
+                        log("VAULT_2X", f"🎉 THU HOẠCH X2 THÀNH CÔNG: +{amt:.6f} GRAM! Số dư mới: {self.balance:.6f}", Fore.GREEN)
+                        return
+            except Exception as e:
+                log("VAULT_2X_ERR", f"Lỗi chuỗi 2x, fallback thu hoạch thường: {e}", Fore.YELLOW)
+
+            # 2. Fallback thu hoạch bình thường nếu 2x không khả dụng
             try:
                 r = requests.post(f"{API_BASE}/api/claim", headers=self.get_headers(), json={"telegram_id": self.user_id, "watched_ad": False}, timeout=10)
                 if r.status_code == 200:
