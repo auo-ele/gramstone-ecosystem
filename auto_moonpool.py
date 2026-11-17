@@ -233,10 +233,31 @@ async def get_tg_client():
     global _global_tg_client
     if _global_tg_client and _global_tg_client.is_connected():
         return _global_tg_client
+    await asyncio.sleep(random.uniform(3, 15))
     session_str = get_clean_string_session()
     _global_tg_client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
-    await _global_tg_client.connect()
+    for attempt in range(6):
+        try:
+            await _global_tg_client.connect()
+            break
+        except Exception as e:
+            if "AuthKeyDuplicated" in str(e) or "auth key" in str(e).lower():
+                wait_sec = random.uniform(8, 15) * (attempt + 1)
+                log("TG_WAIT", f"⚠️ Trùng session IP ({e}), đợi {wait_sec:.1f}s thử lại...", Fore.YELLOW)
+                await asyncio.sleep(wait_sec)
+            else:
+                raise
     return _global_tg_client
+
+async def disconnect_tg():
+    global _global_tg_client
+    if _global_tg_client:
+        try:
+            if _global_tg_client.is_connected():
+                await _global_tg_client.disconnect()
+        except Exception:
+            pass
+        _global_tg_client = None
 
 async def fetch_fresh_init_data():
     """Tự động kết nối Telethon lấy init_data mới nhất từ Telegram."""
@@ -244,6 +265,7 @@ async def fetch_fresh_init_data():
         client = await get_tg_client()
         if not await client.is_user_authorized():
             log("AUTH_ERR", "StringSession không hợp lệ hoặc chưa đăng nhập!", Fore.RED)
+            await disconnect_tg()
             return None
 
         bot = await client.get_input_entity(BOT_USERNAME)
@@ -252,9 +274,11 @@ async def fetch_fresh_init_data():
 
         frag = urllib.parse.urlparse(res.url).fragment
         init_data = urllib.parse.parse_qs(frag).get("tgWebAppData", [None])[0]
+        await disconnect_tg()
         return init_data
     except Exception as e:
         log("TELETHON_ERR", f"Lỗi lấy init_data: {e}", Fore.RED)
+        await disconnect_tg()
         return None
 
 def make_data_check_string(init_d):
@@ -545,8 +569,6 @@ async def run_bot():
     handover_triggered = False
     last_tasks_check = 0
 
-    tg_client = await get_tg_client()
-
     while True:
         elapsed_total = time.time() - start_bot_time
         if elapsed_total > MAX_RUNTIME_SECONDS - 600 and not handover_triggered:
@@ -583,7 +605,9 @@ async def run_bot():
         log("STATUS", f"💰 Số dư: {Fore.GREEN}{float(bal):.8f} TON{Style.RESET_ALL} | ⚡ Sức mạnh: {Fore.CYAN}{power} Power{Style.RESET_ALL} | 🚀 Tốc độ: {Fore.YELLOW}{float(earn_h):.8f} TON/h{Style.RESET_ALL}", Fore.GREEN)
 
         # Quét và hoàn thành nhiệm vụ 1 lần ngay đầu phiên
+        tg_client = await get_tg_client()
         await mp.scan_and_claim_tasks(tg_client)
+        await disconnect_tg()
         last_tasks_check = time.time()
 
         session_start = time.time()
@@ -599,7 +623,9 @@ async def run_bot():
 
             now = time.time()
             if now - last_tasks_check >= 1800:
+                tg_client = await get_tg_client()
                 await mp.scan_and_claim_tasks(tg_client)
+                await disconnect_tg()
                 last_tasks_check = now
 
             st = mp.get_state()

@@ -201,12 +201,32 @@ class GramstoneBot:
     async def get_tg_client(self):
         if self.client and self.client.is_connected():
             return self.client
+        await asyncio.sleep(random.uniform(3, 15))
         if self.session_path and os.path.exists(self.session_path):
             self.client = TelegramClient(self.session_path, API_ID, API_HASH)
         else:
             self.client = TelegramClient(StringSession(self.string_session), API_ID, API_HASH)
-        await self.client.connect()
+        for attempt in range(6):
+            try:
+                await self.client.connect()
+                break
+            except Exception as e:
+                if "AuthKeyDuplicated" in str(e) or "auth key" in str(e).lower():
+                    wait_sec = random.uniform(8, 15) * (attempt + 1)
+                    log("TG_WAIT", f"⚠️ Trùng session IP ({e}), đợi {wait_sec:.1f}s thử lại...", Fore.YELLOW)
+                    await asyncio.sleep(wait_sec)
+                else:
+                    raise
         return self.client
+
+    async def disconnect_tg(self):
+        if self.client:
+            try:
+                if self.client.is_connected():
+                    await self.client.disconnect()
+            except Exception:
+                pass
+            self.client = None
 
     async def fetch_tg_init_data(self):
         log("TELEGRAM", "Đang kết nối Telegram để lấy tgWebAppData Gramstone...", Fore.CYAN)
@@ -536,6 +556,7 @@ class GramstoneBot:
             return
 
         await self.scan_and_claim_tasks(auth_data)
+        await self.disconnect_tg()
         self.claim_streak()
         self.tap_mine()
         self.check_and_claim_vault(auth_data)
@@ -585,10 +606,13 @@ async def run_loop_247(bot_instance, interval_mins=0):
     auth_data = bot_instance.authenticate()
     if auth_data:
         await bot_instance.scan_and_claim_tasks(auth_data)
+        await bot_instance.disconnect_tg()
         bot_instance.check_and_claim_vault(auth_data)
         bot_instance.claim_streak()
         last_vault_check = time.time()
         last_tasks_check = time.time()
+    else:
+        await bot_instance.disconnect_tg()
 
     while True:
         elapsed = time.time() - start_time
@@ -620,6 +644,7 @@ async def run_loop_247(bot_instance, interval_mins=0):
                 auth_data = bot_instance.authenticate()
                 if auth_data:
                     await bot_instance.scan_and_claim_tasks(auth_data)
+                    await bot_instance.disconnect_tg()
                 last_tasks_check = now
             except Exception as e:
                 log("TASKS_ERR", f"Lỗi check tasks: {e}", Fore.RED)
