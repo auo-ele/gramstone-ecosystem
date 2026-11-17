@@ -309,7 +309,7 @@ class MoonpoolBot:
             "Accept": "application/json",
             "Content-Type": "application/json",
             "X-Telegram-Init-Data": self.init_data,
-            "User-Agent": "Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36",
             "Origin": API_BASE,
             "Referer": f"{API_BASE}/"
         })
@@ -457,7 +457,7 @@ class MoonpoolBot:
             # --- BƯỚC 1: ADSGRAM ---
             log("STEP1_ADSGRAM", f"Bước 1/3: Đang tải quảng cáo Adsgram (Block: {block_id})...", Fore.YELLOW)
             ad_headers = {
-                'User-Agent': 'Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36',
                 'Origin': API_BASE,
                 'Referer': f"{API_BASE}/",
                 'Accept': 'application/json',
