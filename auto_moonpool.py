@@ -671,11 +671,11 @@ async def run_bot():
                     f_ok, f_msg = mp.watch_ads_and_claim_tier3_fish()
                     if f_ok:
                         log("FISH_WIN", f"{f_msg}", Fore.GREEN)
-                        await asyncio.sleep(5)
+                        await asyncio.sleep(65)
                         continue
                     else:
                         log("FISH_NOTE", f"{f_msg}", Fore.YELLOW)
-                        await asyncio.sleep(10)
+                        await asyncio.sleep(60)
                         continue
                 else:
                     log("WAIT_12P", f"⏱ Hồi chiêu thẻ +12⚡: còn {cooldown_sec}s | Hàu: {pending_ton:.8f} TON | Power: {Fore.CYAN}{total_power}⚡{Style.RESET_ALL} | Ví: {Fore.GREEN}{cur_bal:.8f} TON{Style.RESET_ALL}", Fore.LIGHTBLACK_EX)
