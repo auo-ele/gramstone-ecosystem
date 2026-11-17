@@ -1,0 +1,41 @@
+name: Auto Milkgram ($GRAM / $TON) 24/7 - Acc 1
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: milkgram-acc1-run
+  cancel-in-progress: true
+
+jobs:
+  run-milkgram:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          sleep 20
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Auto Milkgram 24/7 (Acc 1)
+        env:
+          PYTHONUNBUFFERED: "1"
+          PYTHONIOENCODING: "utf-8"
+          GITHUB_REPOSITORY: "auo-ele/gramstone-ecosystem"
+          ACC_NUM: "1"
+          MAX_RUNTIME_SECONDS: "17500"
+          RUN_247: "1"
+          GH_PAT: ${ secrets.GH_PAT }
+        run: python auto_milkgram.py
