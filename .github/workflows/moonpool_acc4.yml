@@ -1,0 +1,38 @@
+name: Auto Moonpool ($TON) - Acc 4 (Belinnh2k)
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: moonpool-acc4-run
+  cancel-in-progress: true
+
+jobs:
+  run-moonpool:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Auto Moonpool (Acc 4 - Belinnh2k)
+        env:
+          PYTHONUNBUFFERED: "1"
+          PYTHONIOENCODING: "utf-8"
+          TELEGRAM_API_ID: "34333329"
+          TELEGRAM_API_HASH: "4f9371f95000578c84dbc670aaf1f819"
+          TELEGRAM_STRING_SESSION: "1BVtsOMMBu4twagryqQ2jg8Lq0r5ht_iJ-LHnM5qYYrNYGz6aTkbk6gA42gQZ9ZJs80wXSEzppw8z6RK4eKpp6qtGAegFWNsoEbJpCmmd47phuoQ3YN1DPsxsX2uoWJQ60B18gArjt603YezUARHPh7opveQtVwZR9N9M8O4eSFDDQmFHeglnaqniplilMXYSF1Jr7e9E2XevLm2MkYUv4roxlragUkxtKPlSoLOd0V2JMIKN9A4yOzsRHcdI4H33W1XwP1J9UiQrb52gGxsf3i73f_NzbByCFlZPHh04aTRUhNtLBETfLb5XHLtwoxg5SOt24eSkBDRJOtaPCik32hnP3fQjTrQ="
+        run: python auto_moonpool.py
