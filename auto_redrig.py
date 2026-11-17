@@ -83,6 +83,18 @@ async def tg_join_and_archive(client, target):
         return None
     target = str(target).strip()
     try:
+        if target.startswith("{") and "}" in target:
+            try:
+                td = json.loads(target)
+                target = td.get("url") or td.get("link") or td.get("channel") or td.get("username") or ""
+            except Exception:
+                pass
+
+        if "domain=" in target:
+            m = re.search(r'domain=([a-zA-Z0-9_]+)', target)
+            if m:
+                target = m.group(1)
+
         if "/+" in target or "/joinchat/" in target:
             invite_hash = target.split("/+")[-1] if "/+" in target else target.split("/joinchat/")[-1]
             invite_hash = invite_hash.split("/")[0].split("?")[0].strip()
@@ -99,17 +111,19 @@ async def tg_join_and_archive(client, target):
                         log("TG_ARCHIVE", f"📁 Đã đưa '{title}' vào Lưu trữ (Archive) - Giữ vĩnh viễn không out!", Fore.MAGENTA)
                     except Exception:
                         pass
+                    await asyncio.sleep(2)
                     return chat_obj
             except UserAlreadyParticipantError:
-                ent = await client.get_entity(target)
                 log("TG_JOIN", "ℹ️ Đã ở trong nhóm từ trước.", Fore.CYAN)
                 try:
+                    ent = await client.get_entity(target)
                     input_peer = await client.get_input_entity(ent)
                     await client(EditPeerFoldersRequest(folder_peers=[InputFolderPeer(peer=input_peer, folder_id=1)]))
                     log("TG_ARCHIVE", "📁 Đã đưa vào Lưu trữ (Archive) - Giữ vĩnh viễn không out!", Fore.MAGENTA)
                 except Exception:
                     pass
-                return ent
+                await asyncio.sleep(1)
+                return True
             except InviteHashExpiredError:
                 log("TG_JOIN", f"⚠️ Link invite đã hết hạn: {target}", Fore.YELLOW)
                 return None
@@ -117,7 +131,7 @@ async def tg_join_and_archive(client, target):
                 log("TG_JOIN_ERR", f"⚠️ Không thể Join invite: {e}", Fore.YELLOW)
                 return None
 
-        username = target.replace("https://t.me/", "").replace("http://t.me/", "").replace("t.me/", "").replace("@", "").split("/")[0].split("?")[0].strip()
+        username = target.replace("https://", "").replace("http://", "").replace("telegram.me/", "").replace("t.me/", "").replace("tg://resolve?domain=", "").replace("@", "").split("/")[0].split("?")[0].strip()
         if not username or username.lower() in ("i", "addstickers", "proxy", "socks", "share", "boost"):
             return None
 
@@ -138,6 +152,7 @@ async def tg_join_and_archive(client, target):
             log("TG_ARCHIVE", f"📁 Đã đưa '{title}' vào Lưu trữ (Archive) - Giữ vĩnh viễn không out!", Fore.MAGENTA)
         except Exception as e:
             log("TG_ARCHIVE_ERR", f"⚠️ Không thể archive: {e}", Fore.YELLOW)
+        await asyncio.sleep(2)
         return entity
 
     except FloodWaitError as e:
@@ -760,12 +775,12 @@ class RedRigBot:
             if t_id == "channel" and status != "done":
                 log("TASK", "👉 Đang thực hiện nhiệm vụ Join Channel REDRIG...", Fore.YELLOW)
                 ch = task.get("channel", {})
-                target = ch.get("url") or (f"@{ch.get('username')}" if ch.get("username") else None)
+                target = ch.get("url") or ch.get("link") or (f"@{ch.get('username')}" if ch.get("username") else None)
                 if target:
                     client = await self.get_tg_client()
                     await tg_join_and_archive(client, target)
-                    log("TASK", "⏳ Chờ 5s xác thực tham gia Channel...", Fore.CYAN)
-                    await asyncio.sleep(5)
+                    log("TASK", "⏳ Chờ 3s xác thực tham gia Channel...", Fore.CYAN)
+                    await asyncio.sleep(3)
                 try:
                     r = requests.post(f"{API_BASE}/api/tasks/channel/check", headers=self.get_headers(), json={}, timeout=10).json()
                     if r.get("ok"):
@@ -779,12 +794,12 @@ class RedRigBot:
             elif t_id == "group" and status != "done":
                 log("TASK", "👉 Đang thực hiện nhiệm vụ Join Group REDRIG...", Fore.YELLOW)
                 gr = task.get("group", {})
-                target = gr.get("url") or (f"@{gr.get('username')}" if gr.get("username") else None)
+                target = gr.get("url") or gr.get("link") or (f"@{gr.get('username')}" if gr.get("username") else None)
                 if target:
                     client = await self.get_tg_client()
                     await tg_join_and_archive(client, target)
-                    log("TASK", "⏳ Chờ 5s xác thực tham gia Group...", Fore.CYAN)
-                    await asyncio.sleep(5)
+                    log("TASK", "⏳ Chờ 3s xác thực tham gia Group...", Fore.CYAN)
+                    await asyncio.sleep(3)
                 try:
                     r = requests.post(f"{API_BASE}/api/tasks/group/check", headers=self.get_headers(), json={}, timeout=10).json()
                     if r.get("ok"):
@@ -818,6 +833,24 @@ class RedRigBot:
                         state = r.get("state", state)
                 except Exception as e:
                     log("TASK_ERR", f"Lỗi claim streak: {e}", Fore.RED)
+                await asyncio.sleep(1)
+
+            # 5. Generic / Partner Tasks
+            elif status not in ("done", "completed"):
+                target = task.get("url") or task.get("link") or task.get("action_url") or task.get("channel") or task.get("group")
+                if isinstance(target, dict):
+                    target = target.get("url") or target.get("link") or (f"@{target.get('username')}" if target.get("username") else None)
+                if target and ("t.me" in str(target) or "@" in str(target)):
+                    client = await self.get_tg_client()
+                    await tg_join_and_archive(client, target)
+                    await asyncio.sleep(3)
+                try:
+                    r = requests.post(f"{API_BASE}/api/tasks/{t_id}/check", headers=self.get_headers(), json={}, timeout=10).json()
+                    if r.get("ok"):
+                        log("TASK_CLAIM", f"🎉 HOÀN THÀNH NHIỆM VỤ '{t_id}'!", Fore.GREEN)
+                        state = r.get("state", state)
+                except Exception:
+                    pass
                 await asyncio.sleep(1)
 
         return state

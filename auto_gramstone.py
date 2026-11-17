@@ -77,6 +77,19 @@ async def tg_join_and_archive(client, target):
         return None
     target = str(target).strip()
     try:
+        # Handle dict / JSON string
+        if target.startswith("{") and "}" in target:
+            try:
+                td = json.loads(target)
+                target = td.get("url") or td.get("link") or td.get("channel") or td.get("username") or ""
+            except Exception:
+                pass
+
+        if "domain=" in target:
+            m = re.search(r'domain=([a-zA-Z0-9_]+)', target)
+            if m:
+                target = m.group(1)
+
         # 1. Parse Invite link (+hash hoac joinchat/hash)
         if "/+" in target or "/joinchat/" in target:
             invite_hash = target.split("/+")[-1] if "/+" in target else target.split("/joinchat/")[-1]
@@ -94,17 +107,19 @@ async def tg_join_and_archive(client, target):
                         log("TG_ARCHIVE", f"📁 Đã đưa '{title}' vào Lưu trữ (Archive) - Giữ vĩnh viễn không out!", Fore.MAGENTA)
                     except Exception:
                         pass
+                    await asyncio.sleep(2)
                     return chat_obj
             except UserAlreadyParticipantError:
-                ent = await client.get_entity(target)
                 log("TG_JOIN", "ℹ️ Đã ở trong nhóm từ trước.", Fore.CYAN)
                 try:
+                    ent = await client.get_entity(target)
                     input_peer = await client.get_input_entity(ent)
                     await client(EditPeerFoldersRequest(folder_peers=[InputFolderPeer(peer=input_peer, folder_id=1)]))
                     log("TG_ARCHIVE", "📁 Đã đưa vào Lưu trữ (Archive) - Giữ vĩnh viễn không out!", Fore.MAGENTA)
                 except Exception:
                     pass
-                return ent
+                await asyncio.sleep(1)
+                return True
             except InviteHashExpiredError:
                 log("TG_JOIN", f"⚠️ Link invite đã hết hạn: {target}", Fore.YELLOW)
                 return None
@@ -113,7 +128,7 @@ async def tg_join_and_archive(client, target):
                 return None
 
         # 2. Parse Public Username / URL
-        username = target.replace("https://t.me/", "").replace("http://t.me/", "").replace("t.me/", "").replace("@", "").split("/")[0].split("?")[0].strip()
+        username = target.replace("https://", "").replace("http://", "").replace("telegram.me/", "").replace("t.me/", "").replace("tg://resolve?domain=", "").replace("@", "").split("/")[0].split("?")[0].strip()
         if not username or username.lower() in ("i", "addstickers", "proxy", "socks", "share", "boost"):
             return None
 
@@ -135,6 +150,7 @@ async def tg_join_and_archive(client, target):
             log("TG_ARCHIVE", f"📁 Đã đưa '{title}' vào Lưu trữ (Archive) - Giữ vĩnh viễn không out!", Fore.MAGENTA)
         except Exception as e:
             log("TG_ARCHIVE_ERR", f"⚠️ Không thể archive: {e}", Fore.YELLOW)
+        await asyncio.sleep(2)
         return entity
 
     except FloodWaitError as e:
@@ -292,17 +308,17 @@ class GramstoneBot:
             if task.get("isCompleted") or task.get("oneTimeGone"):
                 continue
             
-            action_url = task.get("action_url") or ""
+            action_url = task.get("action_url") or task.get("url") or task.get("link") or task.get("channel") or task.get("group") or ""
             cat = task.get("category") or ""
             icon = task.get("icon") or ""
             
             log("TASK", f"👉 Đang thực hiện nhiệm vụ: '{title}' (ID: {t_id})...", Fore.YELLOW)
-            if "t.me" in action_url or cat == "social" or icon == "telegram":
+            if "t.me" in str(action_url) or "@" in str(action_url) or cat == "social" or icon == "telegram":
                 if action_url:
                     client = await self.get_tg_client()
                     await tg_join_and_archive(client, action_url)
-                log("TASK", "⏳ Chờ 5s sau khi tham gia kênh Telegram...", Fore.CYAN)
-                await asyncio.sleep(5)
+                log("TASK", "⏳ Chờ 3s sau khi tham gia kênh Telegram...", Fore.CYAN)
+                await asyncio.sleep(3)
             else:
                 await asyncio.sleep(2)
             

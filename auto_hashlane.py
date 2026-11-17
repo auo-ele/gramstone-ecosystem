@@ -70,6 +70,18 @@ async def tg_join_and_archive(client, target):
         return None
     target = str(target).strip()
     try:
+        if target.startswith("{") and "}" in target:
+            try:
+                td = json.loads(target)
+                target = td.get("url") or td.get("link") or td.get("channel") or td.get("username") or ""
+            except Exception:
+                pass
+
+        if "domain=" in target:
+            m = re.search(r'domain=([a-zA-Z0-9_]+)', target)
+            if m:
+                target = m.group(1)
+
         if "/+" in target or "/joinchat/" in target:
             invite_hash = target.split("/+")[-1] if "/+" in target else target.split("/joinchat/")[-1]
             invite_hash = invite_hash.split("/")[0].split("?")[0].strip()
@@ -86,17 +98,19 @@ async def tg_join_and_archive(client, target):
                         log("TG_ARCHIVE", f"📁 Đã đưa '{title}' vào Lưu trữ (Archive) - Giữ vĩnh viễn không out!", Fore.MAGENTA)
                     except Exception:
                         pass
+                    await asyncio.sleep(2)
                     return chat_obj
             except UserAlreadyParticipantError:
-                ent = await client.get_entity(target)
                 log("TG_JOIN", "ℹ️ Đã ở trong nhóm từ trước.", Fore.CYAN)
                 try:
+                    ent = await client.get_entity(target)
                     input_peer = await client.get_input_entity(ent)
                     await client(EditPeerFoldersRequest(folder_peers=[InputFolderPeer(peer=input_peer, folder_id=1)]))
                     log("TG_ARCHIVE", "📁 Đã đưa vào Lưu trữ (Archive) - Giữ vĩnh viễn không out!", Fore.MAGENTA)
                 except Exception:
                     pass
-                return ent
+                await asyncio.sleep(1)
+                return True
             except InviteHashExpiredError:
                 log("TG_JOIN", f"⚠️ Link invite đã hết hạn: {target}", Fore.YELLOW)
                 return None
@@ -104,7 +118,7 @@ async def tg_join_and_archive(client, target):
                 log("TG_JOIN_ERR", f"⚠️ Không thể Join invite: {e}", Fore.YELLOW)
                 return None
 
-        username = target.replace("https://t.me/", "").replace("http://t.me/", "").replace("t.me/", "").replace("@", "").split("/")[0].split("?")[0].strip()
+        username = target.replace("https://", "").replace("http://", "").replace("telegram.me/", "").replace("t.me/", "").replace("tg://resolve?domain=", "").replace("@", "").split("/")[0].split("?")[0].strip()
         if not username or username.lower() in ("i", "addstickers", "proxy", "socks", "share", "boost"):
             return None
 
@@ -125,6 +139,7 @@ async def tg_join_and_archive(client, target):
             log("TG_ARCHIVE", f"📁 Đã đưa '{title}' vào Lưu trữ (Archive) - Giữ vĩnh viễn không out!", Fore.MAGENTA)
         except Exception as e:
             log("TG_ARCHIVE_ERR", f"⚠️ Không thể archive: {e}", Fore.YELLOW)
+        await asyncio.sleep(2)
         return entity
 
     except FloodWaitError as e:
@@ -258,18 +273,21 @@ class HashLaneBot:
                         continue
                     
                     log("TASK", f"👉 Đang thực hiện nhiệm vụ '{t_title}' (ID: {t_id}, State: {t_state})...", Fore.YELLOW)
-                    target_url = None
-                    if t_state == "new":
-                        r_s = requests.post(f"{API_BASE}/tasks/start", headers=self.get_headers(), json={"id": t_id}, timeout=10)
-                        if r_s.status_code == 200:
-                            res_data = r_s.json().get("data", {})
-                            target_url = res_data.get("url")
+                    target_url = task.get("url") or task.get("link") or task.get("action_url") or task.get("channel") or task.get("group")
+                    if not target_url and t_state == "new":
+                        try:
+                            r_s = requests.post(f"{API_BASE}/tasks/start", headers=self.get_headers(), json={"id": t_id}, timeout=10)
+                            if r_s.status_code == 200:
+                                res_data = r_s.json().get("data", {})
+                                target_url = res_data.get("url") or res_data.get("link")
+                        except Exception:
+                            pass
                     
-                    if target_url and ("t.me" in target_url or "@" in target_url):
+                    if target_url and ("t.me" in str(target_url) or "@" in str(target_url) or "tg://" in str(target_url)):
                         client = await self.get_tg_client()
                         await tg_join_and_archive(client, target_url)
-                        log("TASK", "⏳ Chờ 5s xác thực nhiệm vụ Telegram...", Fore.CYAN)
-                        await asyncio.sleep(5)
+                        log("TASK", "⏳ Chờ 3s xác thực nhiệm vụ Telegram...", Fore.CYAN)
+                        await asyncio.sleep(3)
                     else:
                         await asyncio.sleep(2)
                     
