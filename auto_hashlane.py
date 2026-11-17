@@ -186,7 +186,7 @@ class HashLaneBot:
                 await self.client.connect()
                 break
             except Exception as e:
-                if "AuthKeyDuplicated" in str(e) or "auth key" in str(e).lower():
+                if "AuthKeyDuplicated" in type(e).__name__ or "authorization key" in str(e).lower() or "auth key" in str(e).lower():
                     wait_sec = random.uniform(8, 15) * (attempt + 1)
                     log("TG_WAIT", f"⚠️ Trùng session IP ({e}), đợi {wait_sec:.1f}s thử lại...", Fore.YELLOW)
                     await asyncio.sleep(wait_sec)
@@ -230,7 +230,7 @@ class HashLaneBot:
                 return True
             except Exception as e:
                 await self.disconnect_tg()
-                if "AuthKeyDuplicated" in str(e) or "auth key" in str(e).lower():
+                if "AuthKeyDuplicated" in type(e).__name__ or "authorization key" in str(e).lower() or "auth key" in str(e).lower():
                     wait_sec = random.uniform(10, 20) * (attempt + 1)
                     log("TG_WAIT", f"⚠️ Xung đột IP session ({e}), chờ {wait_sec:.1f}s thử lại...", Fore.YELLOW)
                     await asyncio.sleep(wait_sec)

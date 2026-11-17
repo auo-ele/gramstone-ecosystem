@@ -50,7 +50,7 @@ _raw_id = os.getenv("TELEGRAM_API_ID", "").strip()
 API_ID = int(_raw_id) if _raw_id.isdigit() else 34333329
 API_HASH = os.getenv("TELEGRAM_API_HASH", "").strip() or "4f9371f95000578c84dbc670aaf1f819"
 
-DEFAULT_SESSION_ACC1 = "1BVtsOMMBu4twagryqQ2jg8Lq0r5ht_iJ-LHnM5qYYrNYGz6aTkbk6gA42gQZ9ZJs80wXSEzppw8z6RK4eKpp6qtGAegFWNsoEbJpCmmd47phuoQ3YN1DPsxsX2uoWJQ60B18gArjt603YezUARHPh7opveQtVwZR9N9M8O4eSFDDQmFHeglnaqniplilMXYSF1Jr7e9E2XevLm2MkYUv4roxlragUkxtKPlSoLOd0V2JMIKN9A4yOzsRHcdI4H33W1XwP1J9UiQrb52gGxsf3i73f_NzbByCFlZPHh04aTRUhNtLBETfLb5XHLtwoxg5SOt24eSkBDRJOtaPCik32hnP3fQjTrQ="
+DEFAULT_SESSION_ACC1 = "1BVtsOMMBu6WXSbH0pQyd4FdW0Fc-zqEWvx3RMUB53LJeKWWB6t61lV-p3TcR3k2psUxcUtbmfdeC1jATK8f7i5jIX_eiplenW3A-h9ALZB7cq9PodKB_KJP4fhOMNeb43G8H7SbF5hDnrdPOiFMEYS1tbjOrmzNu_UyzNe64ndfKb9SSpsTZtrKbo3ryx4x7gpXHrrfISsyMUm6gOjEl9KbyvWCt94yu_spYicw2YsAGCMlKmEYqGIIIpItqZ4VJrdwPtzS__VudhSQzwM56cZMwgTsicw0NA_zaRmgZ4sJEU0ADeMMutBhDtL-kQsJQUb145Ybagpel5xAK86xAKjaeQau5R1I="
 DEFAULT_SESSION_ACC2 = (
     "1BVtsOHIBuzoeRtBOmpNGh2sdyxpZ5e0nY4MrFe-6KKbmJPaM0YnCJiKRI0L9mEh1C5rwqLQqucj456LRF7vV1YIPjZNqL6JevLM0Ww3FTml1NoKdwsiPINfsy9MbBlBhKOvha7py44L4pK5aEXjwpjpoNj4LaSmtWaPiQPufJuTwPB86f4gYjSeXM3HtxhnFU7MtHR5vbZPBa9N2HQSlt2BMB47q00DbQVtvYA37R3R-TrtV2MtwixL9ozChADFq38NYcw4eRyRwKrkobVLccvz0_hvqgHXiQbrfcFLLRkRGwGlRCB-Ew4YhLLdnCbG1hjGEfxUrp9MRmF0JvS-u20MfAuvlcgQ="
 )
@@ -211,7 +211,7 @@ class GramstoneBot:
                 await self.client.connect()
                 break
             except Exception as e:
-                if "AuthKeyDuplicated" in str(e) or "auth key" in str(e).lower():
+                if "AuthKeyDuplicated" in type(e).__name__ or "authorization key" in str(e).lower() or "auth key" in str(e).lower():
                     wait_sec = random.uniform(8, 15) * (attempt + 1)
                     log("TG_WAIT", f"⚠️ Trùng session IP ({e}), đợi {wait_sec:.1f}s thử lại...", Fore.YELLOW)
                     await asyncio.sleep(wait_sec)
@@ -267,7 +267,7 @@ class GramstoneBot:
                 return True
             except Exception as e:
                 await self.disconnect_tg()
-                if "AuthKeyDuplicated" in str(e) or "auth key" in str(e).lower():
+                if "AuthKeyDuplicated" in type(e).__name__ or "authorization key" in str(e).lower() or "auth key" in str(e).lower():
                     wait_sec = random.uniform(10, 20) * (attempt + 1)
                     log("TG_WAIT", f"⚠️ Xung đột IP session ({e}), chờ {wait_sec:.1f}s thử lại...", Fore.YELLOW)
                     await asyncio.sleep(wait_sec)
