@@ -456,24 +456,28 @@ class MoonpoolBot:
           Bước 3: QC Monetag (Delay 6.5s theo quy định hệ thống)
           Kết thúc: Gọi /api/fish/finish để đưa cá +12⚡ về bể!
         """
-        # Đóng session dở dang nếu có
+        ses_id = None
         open_ses = self.state.get("open_session")
         if open_ses and open_ses.get("id"):
-            self.post("/api/fish/finish", {"session_id": open_ses.get("id")})
-            time.sleep(1)
+            # Nếu session đang mở còn hạn, tái sử dụng luôn để không bị cooldown
+            ses_id = open_ses.get("id")
+            log("TIER3_FLOW", f"Tiếp tục phiên nuôi cá đang mở #{ses_id}...", Fore.CYAN)
+        else:
+            # 1. Khởi tạo ca nuôi cá cấp 3 (+12⚡)
+            log("TIER3_START", "Đang kích hoạt ca nuôi cá Cấp 3 (+12⚡ Power)...", Fore.CYAN)
+            r_start = self.post("/api/fish/start", {"tier": 3})
+            if not r_start.get("ok"):
+                err = r_start.get("error", "Không thể bắt đầu ca")
+                # Cập nhật state nếu server trả về state mới (có cooldown_left_sec)
+                if r_start.get("state"):
+                    self.state = r_start.get("state")
+                return False, f"Bắt đầu ca thất bại: {err}"
 
-        # 1. Khởi tạo ca nuôi cá cấp 3 (+12⚡)
-        log("TIER3_START", "Đang kích hoạt ca nuôi cá Cấp 3 (+12⚡ Power)...", Fore.CYAN)
-        r_start = self.post("/api/fish/start", {"tier": 3})
-        if not r_start.get("ok"):
-            err = r_start.get("error", "Không thể bắt đầu ca")
-            return False, f"Bắt đầu ca thất bại: {err}"
+            ses_id = r_start.get("session", {}).get("id")
+            if not ses_id:
+                return False, "Không nhận được session id từ server"
 
-        ses_id = r_start.get("session", {}).get("id")
-        if not ses_id:
-            return False, "Không nhận được session id từ server"
-
-        log("TIER3_FLOW", f"Phiên nuôi cá #{ses_id} đã mở! Chuỗi QC: Adsgram -> Gigapub -> Monetag", Fore.CYAN)
+            log("TIER3_FLOW", f"Phiên nuôi cá #{ses_id} đã mở! Chuỗi QC: Adsgram -> Gigapub -> Monetag", Fore.CYAN)
 
         try:
             cfg = self.state.get("config", {})
@@ -700,7 +704,16 @@ async def run_bot():
                         continue
                     else:
                         log("FISH_NOTE", f"{f_msg}", Fore.YELLOW)
-                        await asyncio.sleep(60)
+                        # Cập nhật lại cooldown thực tế từ server
+                        fresh_st = mp.get_state()
+                        fresh_cd = 60
+                        if fresh_st:
+                            for c in fresh_st.get("cards", []):
+                                if c.get("tier") == 3 or c.get("power") == 12:
+                                    fresh_cd = max(c.get("cooldown_left_sec", 60), 10)
+                                    break
+                        log("WAIT_CD", f"⏳ Chờ hồi chiêu server ({fresh_cd}s) trước khi thử lại...", Fore.LIGHTBLACK_EX)
+                        await asyncio.sleep(fresh_cd + 2)
                         continue
                 else:
                     log("WAIT_12P", f"⏱ Hồi chiêu thẻ +12⚡: còn {cooldown_sec}s | Hàu: {pending_ton:.8f} TON | Power: {Fore.CYAN}{total_power}⚡{Style.RESET_ALL} | Ví: {Fore.GREEN}{cur_bal:.8f} TON{Style.RESET_ALL}", Fore.LIGHTBLACK_EX)
