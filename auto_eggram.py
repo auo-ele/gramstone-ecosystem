@@ -164,7 +164,7 @@ class EggramBot:
             d = r.json()
             amt = d.get("amount", pending)
             self.state = d.get("state", self.state)
-            log("BASKET_CLAIM", f"🎉 Thu hoạch giỏ trứng thành công: +{amt:.8f} GRAM/TON!", Fore.GREEN)
+            log("BASKET_CLAIM", f"🎉 Thu hoạch giỏ trứng thành công: +{float(amt):.8f} GRAM/TON!", Fore.GREEN)
 
     def hatch_hen_tier3(self):
         """CÀY GÀ ĐẺ TRỨNG TIER 3 (+12⚡ Power) bằng chuỗi 3 QC: Adsgram -> Gigapub -> Monetag"""
