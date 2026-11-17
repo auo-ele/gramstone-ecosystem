@@ -230,42 +230,54 @@ class GramstoneBot:
 
     async def fetch_tg_init_data(self):
         log("TELEGRAM", "Đang kết nối Telegram để lấy tgWebAppData Gramstone...", Fore.CYAN)
-        try:
-            client = await self.get_tg_client()
-            if not await client.is_user_authorized():
-                log("TELEGRAM", "❌ Phiên Telegram không được ủy quyền!", Fore.RED)
-                return False
+        for attempt in range(8):
+            try:
+                client = await self.get_tg_client()
+                if not await client.is_user_authorized():
+                    log("TELEGRAM", "❌ Phiên Telegram không được ủy quyền!", Fore.RED)
+                    await self.disconnect_tg()
+                    return False
 
-            bot_entity = await client.get_entity("gramstone_bot")
-            res = await client(RequestWebViewRequest(
-                peer=bot_entity,
-                bot=bot_entity,
-                url="https://gramstone.46-101-143-24.sslip.io/",
-                platform="android"
-            ))
+                bot_entity = await client.get_entity("gramstone_bot")
+                res = await client(RequestWebViewRequest(
+                    peer=bot_entity,
+                    bot=bot_entity,
+                    url="https://gramstone.46-101-143-24.sslip.io/",
+                    platform="android"
+                ))
 
-            frag = res.url.split("#tgWebAppData=")[1].split("&tgWebAppVersion")[0]
-            self.init_data = urllib.parse.unquote(frag)
-            params = dict(urllib.parse.parse_qsl(self.init_data))
-            self.user_obj = json.loads(params.get("user", "{}"))
-            self.user_id = str(self.user_obj.get("id"))
-            self.username = self.user_obj.get("username", "")
-            self.sig = params.get("signature", "")
-            
-            # Tính data_check_string
-            pairs = []
-            for k, v in urllib.parse.parse_qsl(self.init_data):
-                if k not in ['hash', 'signature']:
-                    pairs.append(f"{k}={v}")
-            pairs.sort()
-            raw = "\n".join(pairs)
-            self.dcs = base64.b64encode(raw.encode('utf-8')).decode('ascii').replace('+', '-').replace('/', '_').rstrip('=')
-            
-            log("TELEGRAM", f"✅ Lấy init_data thành công cho @{self.username} ({self.user_id})", Fore.GREEN)
-            return True
-        except Exception as e:
-            log("TELEGRAM_ERR", f"Lỗi lấy WebApp Data: {e}", Fore.RED)
-            return False
+                frag = res.url.split("#tgWebAppData=")[1].split("&tgWebAppVersion")[0]
+                self.init_data = urllib.parse.unquote(frag)
+                params = dict(urllib.parse.parse_qsl(self.init_data))
+                self.user_obj = json.loads(params.get("user", "{}"))
+                self.user_id = str(self.user_obj.get("id"))
+                self.username = self.user_obj.get("username", "")
+                self.sig = params.get("signature", "")
+                
+                # Tính data_check_string
+                pairs = []
+                for k, v in urllib.parse.parse_qsl(self.init_data):
+                    if k not in ['hash', 'signature']:
+                        pairs.append(f"{k}={v}")
+                pairs.sort()
+                raw = "\n".join(pairs)
+                self.dcs = base64.b64encode(raw.encode('utf-8')).decode('ascii').replace('+', '-').replace('/', '_').rstrip('=')
+                
+                log("TELEGRAM", f"✅ Lấy init_data thành công cho @{self.username} ({self.user_id})", Fore.GREEN)
+                return True
+            except Exception as e:
+                await self.disconnect_tg()
+                if "AuthKeyDuplicated" in str(e) or "auth key" in str(e).lower():
+                    wait_sec = random.uniform(10, 20) * (attempt + 1)
+                    log("TG_WAIT", f"⚠️ Xung đột IP session ({e}), chờ {wait_sec:.1f}s thử lại...", Fore.YELLOW)
+                    await asyncio.sleep(wait_sec)
+                else:
+                    log("TELEGRAM_ERR", f"Lỗi lấy WebApp Data: {e}", Fore.RED)
+                    if attempt < 3:
+                        await asyncio.sleep(5)
+                    else:
+                        return False
+        return False
 
     def get_headers(self):
         return {
@@ -598,10 +610,12 @@ async def run_loop_247(bot_instance, interval_mins=0):
     
     log("CONTINUOUS", "🔥 CHẾ ĐỘ AUTO GRAMSTONE 24/7 (TASKS + VAULT + SAFIR TIER 3) ĐÃ BẬT!", Fore.GREEN)
     
-    ok = await bot_instance.fetch_tg_init_data()
-    if not ok:
-        log("INIT_ERR", "Không thể lấy init_data ban đầu.", Fore.RED)
-        return
+    ok = False
+    while not ok:
+        ok = await bot_instance.fetch_tg_init_data()
+        if not ok:
+            log("INIT_RETRY", "Chưa lấy được init_data. Chờ 15s thử lại kết nối Telegram...", Fore.YELLOW)
+            await asyncio.sleep(15)
 
     auth_data = bot_instance.authenticate()
     if auth_data:
@@ -697,6 +711,8 @@ async def main():
     
     bot = GramstoneBot(string_session=session_str, session_path=session_file)
     run_247 = os.getenv("RUN_247", "1") == "1"
+    # Khởi động stagger chống xung đột IP song song với các game khác
+    await asyncio.sleep(random.uniform(5, 12))
     if args.loop > 0 or run_247:
         await run_loop_247(bot, interval_mins=args.loop)
     else:

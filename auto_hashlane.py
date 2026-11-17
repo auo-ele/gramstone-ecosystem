@@ -205,30 +205,42 @@ class HashLaneBot:
 
     async def fetch_tg_init_data(self):
         log("TELEGRAM", "Đang kết nối Telegram để lấy tgWebAppData HashLane...", Fore.CYAN)
-        try:
-            client = await self.get_tg_client()
-            if not await client.is_user_authorized():
-                log("TELEGRAM", "❌ Phiên Telegram không được ủy quyền!", Fore.RED)
-                return False
+        for attempt in range(8):
+            try:
+                client = await self.get_tg_client()
+                if not await client.is_user_authorized():
+                    log("TELEGRAM", "❌ Phiên Telegram không được ủy quyền!", Fore.RED)
+                    await self.disconnect_tg()
+                    return False
 
-            bot_entity = await client.get_entity("hashlane_bot")
-            res = await client(RequestWebViewRequest(
-                peer=bot_entity,
-                bot=bot_entity,
-                url="https://46-101-192-249.sslip.io/app/",
-                platform="android"
-            ))
+                bot_entity = await client.get_entity("hashlane_bot")
+                res = await client(RequestWebViewRequest(
+                    peer=bot_entity,
+                    bot=bot_entity,
+                    url="https://46-101-192-249.sslip.io/app/",
+                    platform="android"
+                ))
 
-            frag = res.url.split("#tgWebAppData=")[1].split("&tgWebAppVersion")[0]
-            self.init_data = urllib.parse.unquote(frag)
-            params = dict(urllib.parse.parse_qsl(self.init_data))
-            user_obj = json.loads(params.get("user", "{}"))
-            self.username = user_obj.get("username", str(user_obj.get("id")))
-            log("TELEGRAM", f"✅ Lấy init_data thành công cho @{self.username}", Fore.GREEN)
-            return True
-        except Exception as e:
-            log("TELEGRAM_ERR", f"Lỗi lấy WebApp Data: {e}", Fore.RED)
-            return False
+                frag = res.url.split("#tgWebAppData=")[1].split("&tgWebAppVersion")[0]
+                self.init_data = urllib.parse.unquote(frag)
+                params = dict(urllib.parse.parse_qsl(self.init_data))
+                user_obj = json.loads(params.get("user", "{}"))
+                self.username = user_obj.get("username", str(user_obj.get("id")))
+                log("TELEGRAM", f"✅ Lấy init_data thành công cho @{self.username}", Fore.GREEN)
+                return True
+            except Exception as e:
+                await self.disconnect_tg()
+                if "AuthKeyDuplicated" in str(e) or "auth key" in str(e).lower():
+                    wait_sec = random.uniform(10, 20) * (attempt + 1)
+                    log("TG_WAIT", f"⚠️ Xung đột IP session ({e}), chờ {wait_sec:.1f}s thử lại...", Fore.YELLOW)
+                    await asyncio.sleep(wait_sec)
+                else:
+                    log("TELEGRAM_ERR", f"Lỗi lấy WebApp Data: {e}", Fore.RED)
+                    if attempt < 3:
+                        await asyncio.sleep(5)
+                    else:
+                        return False
+        return False
 
     def get_headers(self):
         return {
